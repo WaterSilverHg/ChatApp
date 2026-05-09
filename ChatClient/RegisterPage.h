@@ -1,0 +1,46 @@
+#pragma once
+
+#include "global.h"
+#include "ui_RegisterPage.h"
+#include "HttpApiClient.h"
+#include "WebSocketClient.h"
+
+class RegisterPage : public QWidget
+{
+    Q_OBJECT
+
+public:
+    RegisterPage(QWidget *parent = nullptr);
+    ~RegisterPage();
+
+signals:
+    void registerSuccess(const QString& username);
+    void switchToLogin();
+    void autoLogin(const QString& username, const QString& token, const QJsonObject& userInfo);
+
+private slots:
+    void on_registerButton_clicked();
+    void on_backLink_clicked();
+    void on_showPasswordCheckBox_toggled(bool checked);
+    void onRegisterSuccess(const QJsonObject& data);
+    void onError(const QString& errorMessage, int errorCode);
+    void onLoginSuccess(const QJsonObject& data);
+    void onWebSocketConnected();
+    void onWebSocketError(const QString& error);
+
+protected:
+    void keyPressEvent(QKeyEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
+
+private:
+    void connectSignals();
+    void disconnectSignals();
+
+private:
+    Ui::RegisterPageClass ui;
+    HttpApiClient* m_httpClient;
+    WebSocketClient* m_wsClient;
+    QString m_pendingToken;
+    QJsonObject m_pendingUser;
+};

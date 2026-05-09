@@ -1,0 +1,152 @@
+# Visual Studio 缓存文件
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# 构建产物
+build/
+cmake-build-*/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+
+# 依赖库
+lib/
+
+# 配置文件
+api.json
+apifox.json
+config.json
+
+# IDE相关
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+temp/
+tmp/
+.claude
+
+# 编译生成的文件
+*.o
+*.obj
+*.out
+
+# 环境变量文件
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# =====================================================
+# Qt 相关忽略规则
+# =====================================================
+
+# Qt 编译生成的文件
+*.moc
+moc_*.cpp
+moc_*.h
+*.moc
+ui_*.h
+qrc_*.cpp
+qrc_*.h
+*.rcc
+*.qmlc
+*.jsc
+
+# Qt Creator 相关
+*.autosave
+*.creator
+*.creator.user
+*.creator.user.*
+*.creator.user.prefs
+*.config
+*.files
+*.includes
+CMakeLists.txt.user
+CMakeLists.txt.user.*
+*.cflags
+*.cxxflags
+*.config
+*.includes
+CMakeLists.txt.user
+*.pro.user
+*.pro.user.*
+*.pri.user
+*.pri.user.*
+
+# Qt 临时文件
+*.pyc
+*.pyo
+__pycache__/
+
+# Qt 资源编译临时文件
+*.rcc
+
+# Qt 单元测试生成文件
+tst_*.exe
+tst_*.app
+
+# Qt 部署相关
+*.app
+*.dmg
+*.deb
+*.rpm
+*.snap
+
+# Qt 缓存目录
+*-build-*
+*-deploy-*
+*.shadow-build*
+
+# Qt 日志文件
+qt_log.log
+qt_out.txt
+
+# macOS 下 Qt 相关
+*.dSYM/
+*.framework/
+
+# Windows 下 Qt 相关
+*.windeployqt
+*.exe.manifest
+*.intermediate.manifest
+
+# Linux 下 Qt 相关
+*.so
+*.so.*
+*.la
+*.lo
+
+# Qt Charts 相关
+*.qch
+*.qhc
+
+# Qt Quick 编译文件
+*.qmltypes
+*.qmlproject.user
+*.qmlproject.user.*
+
+# Qt 可视化表单文件
+*.ui

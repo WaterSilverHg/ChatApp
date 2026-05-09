@@ -1,0 +1,94 @@
+#pragma once
+
+#include "global.h"
+#include "../dto/GroupDto.hpp"
+#include "../vo/GroupVO.hpp"
+#include "../service/GroupService.hpp"
+#include "../handler/AppAuthHandler.h"
+
+#include OATPP_CODEGEN_BEGIN(ApiController) 
+
+class GroupController : public oatpp::web::server::api::ApiController {
+private:
+    std::shared_ptr<GroupService> m_groupService;
+
+public:
+    GroupController(OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
+                    OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient))
+        : oatpp::web::server::api::ApiController(objectMapper),
+          m_groupService(std::make_shared<GroupService>(appClient)) {
+        setDefaultAuthorizationHandler(std::make_shared<AppAuthHandler>());
+    }
+
+    static std::shared_ptr<GroupController> createShared(
+        OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
+        OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient)
+    ) {
+        return std::make_shared<GroupController>(objectMapper, appClient);
+    }
+
+    ENDPOINT_INFO(searchGroups) {
+        info->summary = "搜索群组";
+        info->description = "根据群名搜索群组，同名结果按相关度+活跃度排序：优先展示用户已加入的群（用isJoined标记），其次按成员数降序";
+        info->addResponse<oatpp::Vector<Object<GroupInfoVO>>>(Status::CODE_200, "application/json", "搜索成功");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "用户不存在或已失效");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "搜索关键词不能为空");
+        info->addSecurityRequirement("BearerAuth");
+    }
+    ENDPOINT("GET", "/api/groups/search", searchGroups,
+        QUERY(String, keyword, "keyword"),
+        AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject)) {
+        return createDtoResponse(Status::CODE_200, m_groupService->searchGroups(keyword, authObject->userUuid));
+    }
+
+    ENDPOINT_INFO(getMyGroups) {
+        info->summary = "获取我的群组列表";
+        info->description = "获取当前用户加入的所有群组，包含群组信息、角色、未读消息数等";
+        info->addResponse<oatpp::Vector<Object<GroupInfoVO>>>(Status::CODE_200, "application/json", "获取成功");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "用户不存在或已失效");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_500, "application/json", "获取群组列表失败");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "请求参数错误");
+        info->addSecurityRequirement("BearerAuth");
+    }
+    ENDPOINT("GET", "/api/groups", getMyGroups,
+        AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject)) {
+        return createDtoResponse(Status::CODE_200, m_groupService->getMyGroups(authObject->userUuid));
+    }
+
+    ENDPOINT_INFO(getGroupDetail) {
+        info->summary = "获取群组详情";
+        info->description = "根据群组UUID获取群组详细信息";
+        info->addResponse<Object<GroupDetailInfoVO>>(Status::CODE_200, "application/json", "获取成功");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "用户不存在或已失效");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_403, "application/json", "您不是该群组的成员，无权查看");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_404, "application/json", "群组不存在");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "群组ID不能为空");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "请求参数错误");
+        info->addSecurityRequirement("BearerAuth");
+    }
+    ENDPOINT("GET", "/api/groups/{groupUuid}", getGroupDetail,
+        PATH(String, groupUuid, "groupUuid"),
+        AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject)) {
+        return createDtoResponse(Status::CODE_200, m_groupService->getGroupDetail(authObject->userUuid, groupUuid));
+    }
+
+    ENDPOINT_INFO(getGroupMembers) {
+        info->summary = "获取群成员列表";
+        info->description = "获取指定群组的成员列表";
+        info->addResponse<oatpp::Vector<Object<GroupMemberVO>>>(Status::CODE_200, "application/json", "获取成功");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "群组不存在或已失效");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_404, "application/json", "群组不存在");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "群组ID不能为空");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "请求参数错误");
+        info->addSecurityRequirement("BearerAuth");
+    }
+    ENDPOINT("GET", "/api/groups/{groupUuid}/members", getGroupMembers, 
+        AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject),
+        PATH(String, groupUuid, "groupUuid")) {
+        return createDtoResponse(Status::CODE_200, m_groupService->getGroupMembers(groupUuid));
+    }
+
+
+};
+
+#include OATPP_CODEGEN_END(ApiController)

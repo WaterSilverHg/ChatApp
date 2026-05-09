@@ -1,0 +1,318 @@
+#pragma once
+
+#include "global.h"
+#include "../dto/MessageDto.hpp"
+#include "../vo/MessageVo.hpp"
+#include "../postgresql/AppClient.hpp"
+#include "../../jwt/Appjwt.h"
+
+class MessageService {
+private:
+    std::shared_ptr<AppClient> m_appClient;
+    using Status = oatpp::web::protocol::http::Status;
+public:
+    MessageService(const std::shared_ptr<AppClient>& appClient) 
+        : m_appClient(appClient) {}
+
+    oatpp::Vector<oatpp::Object<PrivateMessageVO>> getPrivateMessages(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(targetUserUuid && !targetUserUuid->empty(), "Target user ID cannot be empty");
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
+        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #endif
+        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto uuidResult = m_appClient->getUserIdByUuid(targetUserUuid);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(uuidResult->isSuccess(), uuidResult->getErrorMessage());
+        ASYNC_THROW_IF(uuidResult->hasMoreToFetch(), "Target user does not exist");
+        #else
+        ASYNC_THROW_IF(uuidResult->isSuccess() && uuidResult->hasMoreToFetch(), "Target user does not exist");
+        #endif
+        auto targetUserId = uuidResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto result = m_appClient->getPrivateMessages(currentUserId, targetUserId, 50, 0);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        #else
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to get messages");
+        #endif
+        return result->fetch<oatpp::Vector<oatpp::Object<PrivateMessageVO>>>();
+    }
+
+    oatpp::Vector<oatpp::Object<PrivateMessageVO>> getPrivateMessagesPage(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid, oatpp::Int32 page, oatpp::Int32 size) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(targetUserUuid && !targetUserUuid->empty(), "Target user ID cannot be empty");
+        ASYNC_THROW_IF(page > 0, "Page number must be greater than 0");
+        ASYNC_THROW_IF(size > 0 && size <= 100, "Page size must be between 1 and 100");
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
+        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #endif
+        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto uuidResult = m_appClient->getUserIdByUuid(targetUserUuid);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(uuidResult->isSuccess(), uuidResult->getErrorMessage());
+        ASYNC_THROW_IF(uuidResult->hasMoreToFetch(), "Target user does not exist");
+        #else
+        ASYNC_THROW_IF(uuidResult->isSuccess() && uuidResult->hasMoreToFetch(), "Target user does not exist");
+        #endif
+        auto targetUserId = uuidResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        int offset = (page - 1) * size;
+        auto result = m_appClient->getPrivateMessages(currentUserId, targetUserId, size, offset);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        #else
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to get messages");
+        #endif
+        return result->fetch<oatpp::Vector<oatpp::Object<PrivateMessageVO>>>();
+    }
+
+    oatpp::Object<PrivateMessageVO> sendPrivateMessage(const oatpp::String& currentUserIdHeader, const oatpp::Object<SendPrivateMessageRequestDTO>& request) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(request, "Request parameters cannot be empty");
+        ASYNC_THROW_IF(request->toUserUuid && !request->toUserUuid->empty(), "Target user ID cannot be empty");
+        ASYNC_THROW_IF(request->messageType && !request->messageType->empty(), "Message type cannot be empty");
+        ASYNC_THROW_IF(request->content && !request->content->empty(), "Message content cannot be empty");
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
+        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #endif
+        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        //auto targetUserResult = m_appClient->getGroupIdByUuid(request->toUserUuid);
+        //#ifdef SQLCHECK
+        //OATPP_ASSERT_HTTP(targetUserResult->isSuccess(), Status::CODE_500, targetUserResult->getErrorMessage());
+        //OATPP_ASSERT_HTTP(targetUserResult->hasMoreToFetch(), Status::CODE_404, "群组不存在或已失效");
+        //OATPP_ASSERT_HTTP(targetUserResult->isSuccess() && targetUserResult->hasMoreToFetch(), Status::CODE_404, "群组不存在或已失效");
+        //#endif
+        //auto userId = targetUserResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto touserCheck = m_appClient->getUserIdByUuid(request->toUserUuid);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(touserCheck->isSuccess(), touserCheck->getErrorMessage());
+        ASYNC_THROW_IF(touserCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(touserCheck->isSuccess() && touserCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #endif
+        auto targetUserId = touserCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        // 判断关系
+        auto status1Result = m_appClient->checkFriendshipStatus(currentUserId, targetUserId);
+        auto status2Result = m_appClient->checkFriendshipStatus(targetUserId, currentUserId);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(status1Result->isSuccess(), status1Result->getErrorMessage());
+        #endif
+        if (!status1Result->hasMoreToFetch()) {
+            throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "Friendship does not exist");
+        }
+
+        auto status1 = status1Result->fetch<oatpp::Vector<oatpp::Object<StatusDTO>>>()[0]->status;
+        if (status1 == "blocked") {
+            throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "User has been blocked, cannot send message");
+        }
+        auto status2 = status2Result->fetch<oatpp::Vector<oatpp::Object<StatusDTO>>>()[0]->status;
+        if (status2 == "blocked") {
+            throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "You have been blocked by the user, cannot send message");
+        }
+        if (status1 != "accepted") {
+            throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "You are not friends with this user, cannot send message");
+        }
+
+        // 通过检查，发送消息
+
+        auto result = m_appClient->sendPrivateMessage(currentUserId, targetUserId, request->messageType, request->content, request->fileUrl, request->fileSize, request->fileName, request->mimeType);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        ASYNC_THROW_IF(result->hasMoreToFetch(), "Failed to send message");
+        #else
+        ASYNC_THROW_IF(result->isSuccess() && result->hasMoreToFetch(), "Failed to send message");
+        #endif
+
+        auto message = result->fetch<oatpp::Vector<oatpp::Object<PrivateMessageVO>>>()[0];
+        message->fromUserUuid = currentUserIdHeader;
+        message->toUserUuid = request->toUserUuid;
+        message->content = request->content;
+        message->messageType = request->messageType;
+        return message;
+    }
+
+    // 已删除 message_reads 表，标记已读现由 conversations.unread_count 管理
+    // 发送时已自动处理：在线送达 → unread=0，离线 → unread+1
+    // 用户主动打开会话时，调用方应直接使用 upsertConversationDelivered* 系列查询
+
+    oatpp::Boolean recallMessage(const oatpp::String& currentUserIdHeader, const oatpp::String& messageUuid) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(messageUuid && !messageUuid->empty(), "Message ID cannot be empty");
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
+        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #endif
+        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto uuidResult = m_appClient->getMessageIdByUuid(messageUuid);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(uuidResult->isSuccess(), uuidResult->getErrorMessage());
+        ASYNC_THROW_IF(uuidResult->hasMoreToFetch(), "Message does not exist");
+        #else
+        ASYNC_THROW_IF(uuidResult->isSuccess() && uuidResult->hasMoreToFetch(), "Message does not exist");
+        #endif
+        auto messageId = uuidResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto result = m_appClient->recallMessage(messageId, currentUserId);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        #else
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to recall message");
+        #endif
+        return true;
+    }
+
+    oatpp::Vector<oatpp::Object<GroupMessageVO>> getGroupMessages(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(groupUuid && !groupUuid->empty(), "Group ID cannot be empty");
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
+        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #endif
+        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto groupIdResult = m_appClient->getGroupIdByUuid(groupUuid);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(groupIdResult->isSuccess(), groupIdResult->getErrorMessage());
+        ASYNC_THROW_IF(groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(groupIdResult->isSuccess() && groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
+        #endif
+        auto groupId = groupIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto result = m_appClient->getGroupMessages(currentUserId, groupId, 50, 0);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        #else
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to get group messages");
+        #endif
+        return result->fetch<oatpp::Vector<oatpp::Object<GroupMessageVO>>>();
+    }
+
+    oatpp::Vector<oatpp::Object<GroupMessageVO>> getGroupMessagesPage(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid, oatpp::Int32 page, oatpp::Int32 size) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(groupUuid && !groupUuid->empty(), "Group ID cannot be empty");
+        ASYNC_THROW_IF(page > 0, "Page number must be greater than 0");
+        ASYNC_THROW_IF(size > 0 && size <= 100, "Page size must be between 1 and 100");
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
+        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #endif
+        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto groupIdResult = m_appClient->getGroupIdByUuid(groupUuid);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(groupIdResult->isSuccess(), groupIdResult->getErrorMessage());
+        ASYNC_THROW_IF(groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(groupIdResult->isSuccess() && groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
+        #endif
+        auto groupId = groupIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        int offset = (page - 1) * size;
+        auto result = m_appClient->getGroupMessages(currentUserId, groupId, size, offset);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        #else
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to get group messages");
+        #endif
+        return result->fetch<oatpp::Vector<oatpp::Object<GroupMessageVO>>>();
+    }
+
+    oatpp::Object<GroupMessageVO> sendGroupMessage(const oatpp::String& currentUserIdHeader, const oatpp::Object<SendGroupMessageRequestDTO>& request) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(request, "Request parameters cannot be empty");
+        ASYNC_THROW_IF(request->groupUuid && !request->groupUuid->empty(), "Group ID cannot be empty");
+        ASYNC_THROW_IF(request->messageType && !request->messageType->empty(), "Message type cannot be empty");
+        ASYNC_THROW_IF(request->content && !request->content->empty(), "Message content cannot be empty");
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
+        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+        #endif
+        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto groupIdResult = m_appClient->getGroupIdByUuid(request->groupUuid);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(groupIdResult->isSuccess(), groupIdResult->getErrorMessage());
+        ASYNC_THROW_IF(groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
+        #else
+        ASYNC_THROW_IF(groupIdResult->isSuccess() && groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
+        #endif
+        auto groupId = groupIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto result = m_appClient->sendGroupMessage(currentUserId, groupId, request->messageType, request->content, request->fileUrl, request->fileSize, request->fileName, request->mimeType);
+        #ifdef SQLCHECK
+        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        ASYNC_THROW_IF(result->hasMoreToFetch(), "Failed to send group message");
+        #else
+        ASYNC_THROW_IF(result->isSuccess() && result->hasMoreToFetch(), "Failed to send group message");
+        #endif
+
+        auto message = result->fetch<oatpp::Vector<oatpp::Object<GroupMessageVO>>>()[0];
+        message->fromUserUuid = currentUserIdHeader;
+        message->groupUuid = request->groupUuid;
+        message->content = request->content;
+        message->messageType = request->messageType;
+        return message;
+    }
+
+    //oatpp::Boolean markGroupMessageRead(const oatpp::String& currentUserIdHeader, const oatpp::String& messageUuid) {
+    //    OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+    //    OATPP_ASSERT_HTTP(messageUuid && !messageUuid->empty(), Status::CODE_400, "消息ID不能为空");
+    //    auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+    //    #ifdef SQLCHECK
+    //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
+    //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+    //    #else
+    //    OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+    //    #endif
+    //    auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+    //    auto uuidResult = m_appClient->getMessageIdByUuid(messageUuid);
+    //    #ifdef SQLCHECK
+    //    OATPP_ASSERT_HTTP(uuidResult->isSuccess(), Status::CODE_500, uuidResult->getErrorMessage());
+    //    OATPP_ASSERT_HTTP(uuidResult->hasMoreToFetch(), Status::CODE_404, "消息不存在");
+    //    #else
+    //    OATPP_ASSERT_HTTP(uuidResult->isSuccess() && uuidResult->hasMoreToFetch(), Status::CODE_404, "消息不存在");
+    //    #endif
+    //    auto messageId = uuidResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+    //    auto result = m_appClient->markGroupMessageRead(messageId, currentUserId);
+    //    #ifdef SQLCHECK
+    //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, result->getErrorMessage());
+    //    #else
+    //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "标记已读失败");
+    //    #endif
+    //    return true;
+    //}
+};
