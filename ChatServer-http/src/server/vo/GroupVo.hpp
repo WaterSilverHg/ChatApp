@@ -1,6 +1,7 @@
 #pragma once
 
 #include "global.h"
+#include "UserStatusVo.hpp"
 
 #include OATPP_CODEGEN_BEGIN(DTO) 
 
@@ -42,6 +43,28 @@ class GroupMemberVO : public oatpp::DTO {
     DTO_FIELD(String, avatarUrl, "avatarurl");
     DTO_FIELD(String, role, "role"); // owner, admin, member
     DTO_FIELD(String, joinedAt, "joinedat");
+};
+
+// 收到的群聊请求 VO
+class ReceivedGroupRequestVO : public oatpp::DTO {
+    DTO_INIT(ReceivedGroupRequestVO, DTO)
+    DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(String, groupUuid, "groupuuid");
+    DTO_FIELD(String, groupName, "groupname");
+    DTO_FIELD(Object<UserInfoVO>, requester, "requester"); // 请求者信息
+    DTO_FIELD(String, message, "message");
+    DTO_FIELD(String, status, "status");
+    DTO_FIELD(String, createdAt, "createdat");
+};
+
+// 发送的群聊请求 VO
+class SentGroupRequestVO : public oatpp::DTO {
+    DTO_INIT(SentGroupRequestVO, DTO)
+    DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(Object<GroupInfoVO>, group, "group"); // 目标群组信息
+    DTO_FIELD(String, message, "message");
+    DTO_FIELD(String, status, "status");
+    DTO_FIELD(String, createdAt, "createdat");
 };
 
 #include OATPP_CODEGEN_END(DTO) 

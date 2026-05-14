@@ -108,10 +108,11 @@ public:
     OATPP_CREATE_COMPONENT(std::shared_ptr<SharedWebSocketResources>, sharedWebSocketResources)([] {
         OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient);
         OATPP_COMPONENT(std::shared_ptr<Appjwt>, jwt);
+        OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis);
         OATPP_COMPONENT(std::shared_ptr<AppWebSocket>, webSocket);
         OATPP_COMPONENT(std::shared_ptr<oatpp::data::mapping::ObjectMapper>, objectMapper);
         
-        return std::make_shared<SharedWebSocketResources>(appClient, jwt, webSocket, objectMapper);
+        return std::make_shared<SharedWebSocketResources>(appClient, jwt, redis, webSocket, objectMapper);
         }());
 
     /**

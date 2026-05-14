@@ -52,8 +52,26 @@ public:
     CoroutineStarter onClose(const std::shared_ptr<AsyncWebSocket>& socket, v_uint16 code, const oatpp::String& message) override {
         m_running = false;
         if (m_userUuid) {
-            m_sharedResources->webSocket->removeConnection(m_userUuid);
-            OATPP_LOGI("WebSocket", "User disconnected: %s", m_userUuid->c_str());
+            bool shouldSetOffline = m_sharedResources->webSocket->decrementAndRemoveIfZero(m_userUuid);
+
+            if (shouldSetOffline) {
+                try {
+                    auto statusRequest = oatpp::Object<UpdateStatusRequestDTO>::createShared();
+                    statusRequest->status = "offline";
+                    m_sharedResources->statusService->updateStatus(m_userUuid, statusRequest);
+                    OATPP_LOGI("WebSocket", "User %s status set to offline (all connections closed)", m_userUuid->c_str());
+                    
+                    // 删除 Redis 中的 sessionId
+                    if (m_sharedResources->redis) {
+                        m_sharedResources->redis->deleteSession(m_userUuid->c_str());
+                        OATPP_LOGI("WebSocket", "Session deleted for user %s", m_userUuid->c_str());
+                    }
+                } catch (const std::exception& e) {
+                    OATPP_LOGE("WebSocket", "Failed to set user %s status to offline: %s", m_userUuid->c_str(), e.what());
+                }
+            } else {
+                OATPP_LOGI("WebSocket", "User %s has more connections, not setting offline", m_userUuid->c_str());
+            }
         }
 
         return socket->sendCloseAsync();

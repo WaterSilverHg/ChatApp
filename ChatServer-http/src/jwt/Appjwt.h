@@ -3,8 +3,9 @@
 
 class Appjwt {
 public:
-    struct Payload : public oatpp::web::server::handler::AuthorizationObject{
-      oatpp::String userUuid;
+    struct Payload : public oatpp::web::server::handler::AuthorizationObject {
+        oatpp::String userUuid;
+        oatpp::String sessionId;
     };
 private:
     oatpp::String m_secret;
@@ -19,5 +20,7 @@ public:
     oatpp::String createToken(const std::shared_ptr<Payload>& payload);
 
     std::shared_ptr<Payload> readAndVerifyToken(const oatpp::String& token);
-};
 
+    oatpp::String generateSessionId();
+
+};

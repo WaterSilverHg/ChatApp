@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 project(ChatServer VERSION 1.0.0 LANGUAGES CXX)
 
 #是否启用Swagger
-add_definitions(-DSWAGGER)
+# add_definitions(-DSWAGGER)
 
 
 add_definitions(-DNOMINMAX) #解决picojson.h的报错问题
@@ -37,6 +37,39 @@ elseif(UNIX AND NOT APPLE)
     # set(OATPP_VERSION "1.4.0")  # 如果要用 1.4.0，取消注释
 endif()
 
+# ==================== 查找 Poco 库（从 vcpkg） ====================
+message(STATUS "查找 Poco 库（从 vcpkg）...")
+
+if(PLATFORM_WINDOWS AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+    if(NOT VCPKG_ROOT)
+        set(VCPKG_ROOT "C:/cppsoft/vcpkg")
+    endif()
+    set(CMAKE_PREFIX_PATH "${VCPKG_ROOT}/installed/x64-windows/share/poco" ${CMAKE_PREFIX_PATH})
+endif()
+
+find_package(Poco REQUIRED COMPONENTS Foundation JSON XML Util Net Crypto NetSSL CONFIG)
+
+if(Poco_FOUND)
+    message(STATUS "✅ 找到 Poco 库")
+    message(STATUS "   Poco 版本: ${Poco_VERSION}")
+    
+    set(POCO_LIBRARIES 
+        Poco::Foundation
+        Poco::JSON
+        Poco::XML
+        Poco::Util
+        Poco::Net
+        Poco::Crypto
+        Poco::NetSSL
+    )
+else()
+    if(PLATFORM_LINUX)
+        message(FATAL_ERROR "❌ 未找到 Poco 库，请安装: vcpkg install poco:x64-linux")
+    elseif(PLATFORM_WINDOWS)
+        message(FATAL_ERROR "❌ 未找到 Poco 库，请安装: vcpkg install poco:x64-windows")
+    endif()
+endif()
+
 # ==================== 查找 OpenSSL ====================
 message(STATUS "查找 OpenSSL...")
 find_package(OpenSSL REQUIRED)
@@ -51,6 +84,52 @@ else()
         message(FATAL_ERROR "未找到 OpenSSL，请安装: sudo apt install libssl-dev")
     elseif(PLATFORM_WINDOWS)
         message(FATAL_ERROR "未找到 OpenSSL，请通过 vcpkg 安装: vcpkg install openssl:x64-windows")
+    endif()
+endif()
+
+# ==================== 查找项目根目录下 lib 文件夹中的 COS 库 ====================
+message(STATUS "查找项目根目录下 lib 文件夹中的 COS 库...")
+set(COS_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+set(COS_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/cos-cpp")
+
+if(EXISTS "${COS_INCLUDE_DIR}")
+    message(STATUS "✅ COS 包含目录存在: ${COS_INCLUDE_DIR}")
+else()
+    message(FATAL_ERROR "❌ COS 包含目录不存在: ${COS_INCLUDE_DIR}")
+endif()
+
+if(PLATFORM_LINUX)
+    find_library(COS_LIBRARY 
+        NAMES cossdk libcossdk.so libcossdk.a
+        PATHS ${COS_LIB_DIR}
+        PATH_SUFFIXES linux linux-x64 x64
+    )
+    
+    if(COS_LIBRARY)
+        message(STATUS "✅ 找到 COS 库: ${COS_LIBRARY}")
+    else()
+        message(FATAL_ERROR "❌ 未找到 COS 库，请确保 lib 文件夹中存在 cossdk 库文件")
+    endif()
+    
+elseif(PLATFORM_WINDOWS)
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        find_library(COS_LIBRARY 
+            NAMES cossdkd.lib libcossdkd.lib
+            PATHS ${COS_LIB_DIR}
+            PATH_SUFFIXES Debug windows/x64/Debug
+        )
+    else()
+        find_library(COS_LIBRARY 
+            NAMES cossdk.lib libcossdk.lib
+            PATHS ${COS_LIB_DIR}
+            PATH_SUFFIXES Release windows/x64/Release
+        )
+    endif()
+    
+    if(COS_LIBRARY)
+        message(STATUS "✅ 找到 COS 库: ${COS_LIBRARY}")
+    else()
+        message(FATAL_ERROR "❌ 未找到 COS 库，请确保 lib 文件夹中存在 cossdk 库文件")
     endif()
 endif()
 
@@ -329,11 +408,13 @@ add_executable(ChatServer ${PROJECT_SOURCES})
 target_include_directories(ChatServer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${COS_INCLUDE_DIR}
 )
 
 if(PLATFORM_LINUX)
     target_include_directories(ChatServer PRIVATE
         ${OATPP_INCLUDE_DIR}
+        ${POCO_INCLUDE_DIR}
     )
 endif()
 
@@ -402,6 +483,12 @@ if(PLATFORM_LINUX AND NOT TARGET oatpp::oatpp)
             ${HIREDIS_LIBRARY}
         )
     endif()
+    
+    # ========== 链接 Poco 库 ==========
+    target_link_libraries(ChatServer PRIVATE ${POCO_LIBRARIES})
+    
+    # ========== 链接 COS 库 ==========
+    target_link_libraries(ChatServer PRIVATE ${COS_LIBRARY})
 else()
     target_link_libraries(ChatServer PRIVATE
         oatpp::oatpp
@@ -438,6 +525,12 @@ else()
             target_link_libraries(ChatServer PRIVATE redis++::redis_plus_plus)
         endif()
     endif()
+    
+    # ========== 链接 Poco 库 ==========
+    target_link_libraries(ChatServer PRIVATE ${POCO_LIBRARIES})
+    
+    # ========== 链接 COS 库 ==========
+    target_link_libraries(ChatServer PRIVATE ${COS_LIBRARY})
 endif()
 
 # ========== 链接 bcrypt 库（根据 Debug/Release 配置） ==========

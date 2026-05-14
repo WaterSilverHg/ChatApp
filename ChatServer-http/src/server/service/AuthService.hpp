@@ -48,15 +48,15 @@ public:
         user->email = userWithPass->email;
         user->avatarUrl = userWithPass->avatarUrl;
         user->lastSeen = userWithPass->lastSeen;
-        // status需要从其他地方获取，这里设为默认值
-        user->status = oatpp::String("offline");
 
         auto response = LoginResponseVO::createShared();
         auto payload = std::make_shared<Appjwt::Payload>();
         payload->userUuid = user->userUuid;
+        // 生成唯一的sessionId
+        payload->sessionId = m_jwt->generateSessionId();
         response->token = m_jwt->createToken(payload);
 
-        m_redis->createToken(user->userUuid, response->token.getValue(""), EXPIRESIN);
+        m_redis->createSession(user->userUuid, payload->sessionId.getValue(""), EXPIRESIN);
 
         response->user = user;
         response->expiresIn = EXPIRESIN;
@@ -79,16 +79,18 @@ public:
         user->username = request->username;
         // 新注册用户没有头像，设置为空
         user->avatarUrl = nullptr;
-        // 新注册用户状态默认为offline
-        user->status = oatpp::String("offline");
+        // 新注册用户状态默认为online
+        //user->status = oatpp::String("online");
         user->lastSeen = nullptr;
 
         auto response = LoginResponseVO::createShared();
         auto payload = std::make_shared<Appjwt::Payload>();
         payload->userUuid = user->userUuid;
+        // 生成唯一的sessionId
+        payload->sessionId = m_jwt->generateSessionId();
         response->token = m_jwt->createToken(payload);
 
-        m_redis->createToken(payload->userUuid, response->token.getValue(""), EXPIRESIN);
+        m_redis->createSession(payload->userUuid, payload->sessionId.getValue(""), EXPIRESIN);
 
         response->user = user;
         response->expiresIn = EXPIRESIN;
@@ -163,18 +165,18 @@ public:
     //    return userInfo;
     //}
 
-    oatpp::Boolean logout(const oatpp::String& userId) {
-        auto userCheck = m_appClient->getUserIdByUuid(userId);
-        #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
-        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #else
-        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #endif
+    // oatpp::Boolean logout(const oatpp::String& userId) {
+    //     auto userCheck = m_appClient->getUserIdByUuid(userId);
+    //     #ifdef SQLCHECK
+    //     OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
+    //     OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+    //     #else
+    //     OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+    //     #endif
 
-        m_redis->deleteToken(userId.getValue(""));
-        return true;
-    }
+    //     //m_redis->deleteSession(userId.getValue(""));
+    //     return true;
+    // }
 
     //oatpp::Object<UserInfoVO> updateUserInfo(const oatpp::Object<UpdateProfileRequestDTO>& request, const oatpp::String& userId) {
     //    auto userCheck = m_appClient->getUserIdByUuid(userId);

@@ -77,6 +77,48 @@ public:
         return result->fetch<oatpp::Vector<oatpp::Object<PrivateMessageVO>>>();
     }
 
+    oatpp::Vector<oatpp::Object<PrivateMessageVO>> getPrivateMessagesBefore(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid, const oatpp::String& msgUuid, oatpp::Int32 size) {
+        OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+        OATPP_ASSERT_HTTP(targetUserUuid && !targetUserUuid->empty(), Status::CODE_400, "目标用户ID不能为空");
+        OATPP_ASSERT_HTTP(msgUuid && !msgUuid->empty(), Status::CODE_400, "消息ID不能为空");
+        OATPP_ASSERT_HTTP(size > 0 && size <= 100, Status::CODE_400, "每页大小必须在1-100之间");
+        
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
+        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+        #else
+        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+        #endif
+        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto uuidResult = m_appClient->getUserIdByUuid(targetUserUuid);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(uuidResult->isSuccess(), Status::CODE_500, uuidResult->getErrorMessage());
+        OATPP_ASSERT_HTTP(uuidResult->hasMoreToFetch(), Status::CODE_404, "目标用户不存在");
+        #else
+        OATPP_ASSERT_HTTP(uuidResult->isSuccess() && uuidResult->hasMoreToFetch(), Status::CODE_404, "目标用户不存在");
+        #endif
+        auto targetUserId = uuidResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto msgIdResult = m_appClient->getMessageIdByUuid(msgUuid);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(msgIdResult->isSuccess(), Status::CODE_500, msgIdResult->getErrorMessage());
+        OATPP_ASSERT_HTTP(msgIdResult->hasMoreToFetch(), Status::CODE_404, "消息不存在");
+        #else
+        OATPP_ASSERT_HTTP(msgIdResult->isSuccess() && msgIdResult->hasMoreToFetch(), Status::CODE_404, "消息不存在");
+        #endif
+        auto msgId = msgIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto result = m_appClient->getPrivateMessagesBefore(currentUserId, targetUserId, msgId, size);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
+        #else
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取消息失败");
+        #endif
+        return result->fetch<oatpp::Vector<oatpp::Object<PrivateMessageVO>>>();
+    }
+
     //oatpp::Object<PrivateMessageVO> sendPrivateMessage(const oatpp::String& currentUserIdHeader, const oatpp::Object<SendPrivateMessageRequestDTO>& request) {
     //    OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
     //    OATPP_ASSERT_HTTP(request, Status::CODE_400, "请求参数不能为空");
@@ -267,6 +309,48 @@ public:
 
         int offset = (page - 1) * size;
         auto result = m_appClient->getGroupMessages(groupId, size, offset);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
+        #else
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取群消息失败");
+        #endif
+        return result->fetch<oatpp::Vector<oatpp::Object<GroupMessageVO>>>();
+    }
+
+    oatpp::Vector<oatpp::Object<GroupMessageVO>> getGroupMessagesBefore(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid, const oatpp::String& msgUuid, oatpp::Int32 size) {
+        OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+        OATPP_ASSERT_HTTP(groupUuid && !groupUuid->empty(), Status::CODE_400, "群组ID不能为空");
+        OATPP_ASSERT_HTTP(msgUuid && !msgUuid->empty(), Status::CODE_400, "消息ID不能为空");
+        OATPP_ASSERT_HTTP(size > 0 && size <= 100, Status::CODE_400, "每页大小必须在1-100之间");
+        
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
+        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+        #else
+        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+        #endif
+        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto groupIdResult = m_appClient->getGroupIdByUuid(groupUuid);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(groupIdResult->isSuccess(), Status::CODE_500, groupIdResult->getErrorMessage());
+        OATPP_ASSERT_HTTP(groupIdResult->hasMoreToFetch(), Status::CODE_404, "群组不存在或已失效");
+        #else
+        OATPP_ASSERT_HTTP(groupIdResult->isSuccess() && groupIdResult->hasMoreToFetch(), Status::CODE_404, "群组不存在或已失效");
+        #endif
+        auto groupId = groupIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto msgIdResult = m_appClient->getMessageIdByUuid(msgUuid);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(msgIdResult->isSuccess(), Status::CODE_500, msgIdResult->getErrorMessage());
+        OATPP_ASSERT_HTTP(msgIdResult->hasMoreToFetch(), Status::CODE_404, "消息不存在");
+        #else
+        OATPP_ASSERT_HTTP(msgIdResult->isSuccess() && msgIdResult->hasMoreToFetch(), Status::CODE_404, "消息不存在");
+        #endif
+        auto msgId = msgIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto result = m_appClient->getGroupMessagesBefore(groupId, msgId, size);
         #ifdef SQLCHECK
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
         #else

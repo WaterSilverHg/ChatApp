@@ -6,6 +6,7 @@
 #include"../dto/GeneralDto.hpp"
 #include "../postgresql/AppClient.hpp"
 #include "../../jwt/Appjwt.h"
+#include"../../redis/AppRedis.hpp"
 
 class AuthService {
     using Status = oatpp::web::protocol::http::Status;
@@ -51,9 +52,10 @@ public:
         auto response = LoginResponseVO::createShared();
         auto payload = std::make_shared<Appjwt::Payload>();
         payload->userUuid = user->uuid;
-        response->token = m_jwt->createToken(payload);
+        auto [token, sessionId] = m_jwt->createTokenWithSession(payload);
 
-        m_redis->createToken(user->uuid, response->token.getValue(""), EXPIRESIN);
+        response->token = token;
+        m_redis->createSession(user->uuid, sessionId.getValue(""), EXPIRESIN);
 
         response->user = user;
         response->expiresIn = EXPIRESIN;
@@ -78,9 +80,10 @@ public:
         auto response = LoginResponseVO::createShared();
         auto payload = std::make_shared<Appjwt::Payload>();
         payload->userUuid = user->uuid;
-        response->token = m_jwt->createToken(payload);
+        auto [token, sessionId] = m_jwt->createTokenWithSession(payload);
 
-        m_redis->createToken(payload->userUuid, response->token.getValue(""), EXPIRESIN);
+        response->token = token;
+        m_redis->createSession(payload->userUuid, sessionId.getValue(""), EXPIRESIN);
 
         response->user = user;
         response->expiresIn = EXPIRESIN;
@@ -137,7 +140,7 @@ public:
         ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "用户不存在或已失效");
         #endif
 
-        m_redis->deleteToken(userId.getValue(""));
+        m_redis->deleteSession(userId.getValue(""));
         return true;
     }
 

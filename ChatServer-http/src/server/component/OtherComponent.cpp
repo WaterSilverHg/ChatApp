@@ -2,6 +2,7 @@
 #include"global.h"
 #include"../../jwt/Appjwt.h"
 #include"../../redis/AppRedis.hpp"
+#include "../../cos/AppCos.hpp"
 // #include"../../smtp/AppEmail.hpp"
 //#include"../../websocket/AppWebSocket.hpp"
 
@@ -34,5 +35,20 @@ public:
     OATPP_CREATE_COMPONENT(std::shared_ptr<Appjwt>, jwt)([] {
         OATPP_COMPONENT(std::shared_ptr<SettingController>, config);
         return std::make_shared<Appjwt>(config->getString("jwt_secret"),config->getString("jwt_issuer"));
+        }());
+
+    /**
+ *  Create CosService component for Tencent Cloud COS
+ */
+    OATPP_CREATE_COMPONENT(std::shared_ptr<AppCos>, cosClient)([] {
+        OATPP_COMPONENT(std::shared_ptr<SettingController>, config);
+
+        std::string appId = config->getString("cos_app_id");
+        std::string secretId = config->getString("cos_secret_id");
+        std::string secretKey = config->getString("cos_secret_key");
+        std::string region = config->getString("cos_region");
+        std::string bucketName = config->getString("cos_bucket_name");
+
+        return std::make_shared<AppCos>(appId, secretId, secretKey, region, bucketName);
         }());
 };

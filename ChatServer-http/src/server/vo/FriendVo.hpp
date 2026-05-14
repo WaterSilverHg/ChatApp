@@ -4,13 +4,23 @@
 
 #include OATPP_CODEGEN_BEGIN(DTO) 
 
-// 好友请求
-class FriendResponseVO : public oatpp::DTO {
-    DTO_INIT(FriendResponseVO, DTO)
-    DTO_FIELD(String, uuid, "uuid");
-    DTO_FIELD(String, fromUserUuid, "fromuseruuid");
-    DTO_FIELD(String, toUserUuid, "touseruuid");
-    DTO_FIELD(String, status, "status"); // pending, accepted, rejected
+
+
+//已发送好友请求的 VO
+class SentFriendRequestVO : public oatpp::DTO {
+    DTO_INIT(SentFriendRequestVO, DTO)
+        DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(Object<UserInfoVO>, receiver, "receiver");   // 接收方用户信息
+    DTO_FIELD(String, status, "status");
+    DTO_FIELD(String, createdAt, "createdat");
+    DTO_FIELD(String, message, "message");
+};
+//已收到好友请求的 VO
+class ReceivedFriendRequestVO : public oatpp::DTO {
+    DTO_INIT(ReceivedFriendRequestVO, DTO)
+        DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(Object<UserInfoVO>, requester, "requester"); // 请求方用户信息
+    DTO_FIELD(String, status, "status");
     DTO_FIELD(String, createdAt, "createdat");
     DTO_FIELD(String, message, "message");
 };

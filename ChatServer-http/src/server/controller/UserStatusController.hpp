@@ -85,7 +85,7 @@ public:
     ENDPOINT("GET", "/api/users/search", searchUsers,
         QUERY(String, keyword, "keyword"),
         AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject)) {
-        return createDtoResponse(Status::CODE_200, m_statusService->searchUsers(keyword,authObject->userUuid));
+        return createDtoResponse(Status::CODE_200, m_statusService->searchUsers(oatpp::encoding::Url::decode(keyword),authObject->userUuid));
     }
 
     ENDPOINT_INFO(getUserInfoByUuid) {

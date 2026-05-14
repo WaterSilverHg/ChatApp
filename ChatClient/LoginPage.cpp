@@ -89,7 +89,7 @@ void LoginPage::onLoginSuccess(const QJsonObject& data)
 
     UserSession::instance()->setToken(token);
     UserSession::instance()->setUserData(user);
-
+    //记录邮箱和密码，方便下次直接登录
     saveCredentials(ui.emailEdit->text().trimmed(), ui.passwordEdit->text());
 
     m_wsClient->connectWebSocket();

@@ -182,6 +182,7 @@ public:
     oatpp::Boolean markConversationRead(const oatpp::String& currentUserIdHeader, const oatpp::String& convUuid) {
         OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
         OATPP_ASSERT_HTTP(convUuid && !convUuid->empty(), Status::CODE_400, "会话ID不能为空");
+
         auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
         #ifdef SQLCHECK
         OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
@@ -191,44 +192,41 @@ public:
         #endif
         auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-        // 2. 尝试作为目标用户 ID 查询
+        // 先尝试查询是否为私聊会话（convUuid是对端用户的uuid）
         auto targetUserResult = m_appClient->getUserIdByUuid(convUuid);
+        oatpp::Int64 targetId = -1;
+        bool isUser = false;
+        
         if (targetUserResult->isSuccess() && targetUserResult->hasMoreToFetch()) {
-            auto targetUserId = targetUserResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-
-            // 查询私聊会话
-            auto convResult = m_appClient->getConversationId(userId, targetUserId);
-            if (convResult->isSuccess() && convResult->hasMoreToFetch()) {
-                #ifdef SQLCHECK
-                auto result = m_appClient->markConversationRead(targetUserId, userId);
-                OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
-                #else
-                auto result = m_appClient->markConversationRead(targetUserId, userId);
-                OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "标记已读失败");
-                #endif
-                return true;
+            targetId = targetUserResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+            isUser = true;
+        } else {
+            // 尝试查询是否为群聊会话（convUuid是群聊的uuid）
+            auto targetGroupResult = m_appClient->getGroupIdByUuid(convUuid);
+            if (targetGroupResult->isSuccess() && targetGroupResult->hasMoreToFetch()) {
+                targetId = targetGroupResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+                isUser = false;
+            } else {
+                OATPP_ASSERT_HTTP(false, Status::CODE_404, "会话不存在");
             }
         }
 
-        // 3. 尝试作为群组 ID 查询
-        auto groupResult = m_appClient->getGroupIdByUuid(convUuid);
-        if (groupResult->isSuccess() && groupResult->hasMoreToFetch()) {
-            auto groupId = groupResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto convIdResult = m_appClient->getConversationId(userId, targetId);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(convIdResult->isSuccess(), Status::CODE_500, convIdResult->getErrorMessage());
+        OATPP_ASSERT_HTTP(convIdResult->hasMoreToFetch(), Status::CODE_404, "会话不存在");
+        #else
+        OATPP_ASSERT_HTTP(convIdResult->isSuccess() && convIdResult->hasMoreToFetch(), Status::CODE_404, "会话不存在");
+        #endif
+        auto conversationId = convIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-            // 查询群聊会话
-            auto convResult = m_appClient->getConversationId(userId, groupId);
-            if (convResult->isSuccess() && convResult->hasMoreToFetch()) {
-                #ifdef SQLCHECK
-                auto result = m_appClient->markConversationRead(groupId, userId);
-                OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
-                #else
-                auto result = m_appClient->markConversationRead(groupId, userId);
-                OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "标记已读失败");
-                #endif
-                return true;
-            }
-        }
-        throw oatpp::web::protocol::http::HttpError(Status::CODE_400, "标记已读失败");
+        auto result = m_appClient->markConversationRead(conversationId, userId);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
+        #else
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "标记已读失败");
+        #endif
+        return true;
     }
 
     //oatpp::Vector<oatpp::Object<ConversationMemberVO>> getConversationMembers(const oatpp::String& currentUserIdHeader, const oatpp::String& convUuid) {

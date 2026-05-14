@@ -4,44 +4,71 @@
 
 #include"../server/coroutine/Coroutines.hpp"
 
-
-
-
-
 class AppWebSocket {
 private:
     OATPP_COMPONENT(std::shared_ptr<oatpp::async::Executor>, m_executor, "ws-server-exec");
 public:
     using AsyncWebSocket = oatpp::websocket::AsyncWebSocket;
 
-    void registerConnection(const oatpp::String& userUuid, const std::shared_ptr<AsyncWebSocket>& socket) {
+    struct ConnectionInfo {
+        std::shared_ptr<AsyncWebSocket> socket;
+        int count;
+        ConnectionInfo() : count(0) {}
+        ConnectionInfo(const std::shared_ptr<AsyncWebSocket>& s, int c) : socket(s), count(c) {}
+    };
+
+    int registerConnection(const oatpp::String& userUuid, const std::shared_ptr<AsyncWebSocket>& socket) {
         std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
 
         auto it = m_connections.find(userUuid);
         if (it != m_connections.end()) {
-            OATPP_LOGW("AppWebSocket", "User %s already connected, closing old connection and accepting new one", userUuid->c_str());
+            OATPP_LOGW("AppWebSocket", "User %s already has %d connection(s), incrementing count", userUuid->c_str(), it->second.count);
 
-            // 关闭旧连接
-            if (it->second) {
-                //it->second->sendOneFrameTextAsync("{\"type\":\"error\",\"message\":\"new_login_detected\"}");
-                m_executor->execute<SendCloseCoroutine>(
-                    it->second
-                );
+            it->second.count++;
+            if (it->second.socket != socket) {
+                it->second.socket = socket;
             }
-
-            // 移除旧连接
-            m_connections.erase(it);
+            OATPP_LOGI("AppWebSocket", "User connected: %s, connection count: %d",
+                userUuid->c_str(), it->second.count);
+            return it->second.count;
         }
 
-        // 添加新连接
-        m_connections[userUuid] = socket;
-        OATPP_LOGI("AppWebSocket", "User connected: %s, total connections: %d",
-            userUuid->c_str(), m_connections.size());
+        ConnectionInfo info(socket, 1);
+        m_connections[userUuid] = info;
+        OATPP_LOGI("AppWebSocket", "User connected: %s, connection count: %d",
+            userUuid->c_str(), info.count);
+        return 0;
+    }
+
+    bool decrementAndRemoveIfZero(const oatpp::String& userUuid) {
+        std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
+        auto it = m_connections.find(userUuid);
+        if (it == m_connections.end()) {
+            OATPP_LOGW("AppWebSocket", "User %s not found in connections", userUuid->c_str());
+            return true;
+        }
+
+        it->second.count--;
+        OATPP_LOGI("AppWebSocket", "User %s connection count decremented to: %d", userUuid->c_str(), it->second.count);
+
+        if (it->second.count <= 0) {
+            m_connections.erase(it);
+            OATPP_LOGI("AppWebSocket", "User %s disconnected (count reached 0), remaining connections: %d",
+                userUuid->c_str(), m_connections.size());
+            return true;
+        }
+        return false;
     }
 
     void removeConnection(const oatpp::String& userUuid) {
         std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
-        m_connections.erase(userUuid);
+        auto it = m_connections.find(userUuid);
+        if (it != m_connections.end()) {
+            if (it->second.socket) {
+                m_executor->execute<SendCloseCoroutine>(it->second.socket);
+            }
+            m_connections.erase(it);
+        }
         OATPP_LOGI("AppWebSocket", "User disconnected: %s, remaining connections: %d", userUuid->c_str(), m_connections.size());
     }
 
@@ -53,10 +80,10 @@ public:
     bool sendMessageToUser(const oatpp::String& userUuid, const oatpp::String& message) {
         std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
         auto it = m_connections.find(userUuid);
-        if (it != m_connections.end() && it->second) {
+        if (it != m_connections.end() && it->second.socket) {
             try {
                 m_executor->execute<SendOneMessageCoroutine>(
-                    it->second,message
+                    it->second.socket, message
                 );
                 return true;
             } catch (const std::exception& e) {
@@ -72,10 +99,10 @@ public:
         std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
         for (const auto& userUuid : userUuids) {
             auto it = m_connections.find(userUuid);
-            if (it != m_connections.end() && it->second) {
+            if (it != m_connections.end() && it->second.socket) {
                 try {
                     m_executor->execute<SendOneMessageCoroutine>(
-                        it->second, message
+                        it->second.socket, message
                     );
                 } catch (const std::exception& e) {
                     OATPP_LOGE("AppWebSocket", "Failed to send message to user %s: %s", userUuid->c_str(), e.what());
@@ -88,9 +115,9 @@ public:
         std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
         for (const auto& pair : m_connections) {
             try {
-                if (pair.second) {
+                if (pair.second.socket) {
                     m_executor->execute<SendOneMessageCoroutine>(
-                        pair.second, message
+                        pair.second.socket, message
                     );
                 }
             } catch (const std::exception& e) {
@@ -120,45 +147,15 @@ public:
         OATPP_LOGI("AppWebSocket", "All connections cleared");
     }
 
-    // 获取在线连接快照（线程安全，返回副本）
     std::unordered_map<oatpp::String, std::shared_ptr<AsyncWebSocket>> getConnectionsSnapshot() {
         std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
-        return m_connections;
+        std::unordered_map<oatpp::String, std::shared_ptr<AsyncWebSocket>> snapshot;
+        for (const auto& pair : m_connections) {
+            snapshot[pair.first] = pair.second.socket;
+        }
+        return snapshot;
     }
 
-    //// 批量分发（带回调）：在线推送 + 离线/失败回调
-    //void batchSendWithOfflineFallback(
-    //    const std::vector<oatpp::String>& targetUuids,
-    //    const oatpp::String& message,
-    //    OnMessageOffline  onOffline,
-    //    OnMessageDelivered onDelivered)
-    //{
-    //    std::vector<std::pair<oatpp::String, std::shared_ptr<AsyncWebSocket>>> online;
-    //    std::vector<oatpp::String> offline;
-
-    //    {
-    //        std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
-    //        for (auto& uuid : targetUuids) {
-    //            auto it = m_connections.find(uuid);
-    //            if (it != m_connections.end() && it->second) {
-    //                online.emplace_back(uuid, it->second);
-    //            } else {
-    //                offline.push_back(uuid);
-    //            }
-    //        }
-    //    }
-
-    //    m_executor->execute<BatchSendMessageCoroutine>(
-    //        m_executor,
-    //        std::move(online),
-    //        std::move(offline),
-    //        message,
-    //        onOffline,
-    //        onDelivered
-    //    );
-    //}
-
-    // 纯推送（无回调），直接在线用户逐个 SendOneMessageCoroutine，不经过 BatchSendMessageCoroutine
     void batchPushMessage(
         const std::vector<oatpp::String>& targetUuids,
         const oatpp::String& message)
@@ -166,13 +163,13 @@ public:
         std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
         for (auto& uuid : targetUuids) {
             auto it = m_connections.find(uuid);
-            if (it != m_connections.end() && it->second) {
-                m_executor->execute<SendOneMessageCoroutine>(it->second, message);
+            if (it != m_connections.end() && it->second.socket) {
+                m_executor->execute<SendOneMessageCoroutine>(it->second.socket, message);
             }
         }
     }
 
 private:
     oatpp::concurrency::SpinLock m_lock;
-    std::unordered_map<oatpp::String, std::shared_ptr<AsyncWebSocket>> m_connections;
+    std::unordered_map<oatpp::String, ConnectionInfo> m_connections;
 };

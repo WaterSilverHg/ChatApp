@@ -2,6 +2,7 @@
 
 #include "global.h"
 #include "../dto/FriendDto.hpp"
+#include "../dto/GeneralDto.hpp"
 #include "../vo/FriendVo.hpp"
 #include "../postgresql/AppClient.hpp"
 
@@ -121,9 +122,15 @@ public:
         return result->fetch<oatpp::Vector<oatpp::Object<FriendResponseVO>>>();
     }
 
-    oatpp::Boolean acceptFriendRequest(const oatpp::String& currentUserIdHeader, const oatpp::String& requestUuid) {
+    oatpp::Boolean handleFriendRequest(const oatpp::String& currentUserIdHeader, const oatpp::String& requestUuid, const oatpp::String& status) {
         ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
         ASYNC_THROW_IF(requestUuid && !requestUuid->empty(), "Request ID cannot be empty");
+        ASYNC_THROW_IF(status && !status->empty(), "Status cannot be empty");
+
+        // Validate status
+        if (status != "accepted" && status != "rejected" && status != "canceled") {
+            ASYNC_THROW_IF(false, "Invalid status: must be accepted, rejected, or canceled");
+        }
 
         auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
         #ifdef SQLCHECK
@@ -134,83 +141,48 @@ public:
         #endif
         oatpp::Int64 currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-        auto requestResult = m_appClient->getFriendRequestByUuid(requestUuid);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(requestResult->isSuccess(), requestResult->getErrorMessage());
-        ASYNC_THROW_IF(requestResult->hasMoreToFetch(), "Friend request does not exist");
-        #else
-        ASYNC_THROW_IF(requestResult->isSuccess() && requestResult->hasMoreToFetch(), "Friend request does not exist");
-        #endif
-
-        auto friendRequest = requestResult->fetch<oatpp::Vector<oatpp::Object<FriendResponseVO>>>()[0];
-
-        ASYNC_THROW_IF(friendRequest->toUserUuid == currentUserIdHeader, "You do not have permission to process this request");
-
-        auto fromUserResult = m_appClient->getUserIdByUuid(friendRequest->fromUserUuid);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(fromUserResult->isSuccess(), fromUserResult->getErrorMessage());
-        ASYNC_THROW_IF(fromUserResult->hasMoreToFetch(), "Sender user does not exist");
-        #else
-        ASYNC_THROW_IF(fromUserResult->isSuccess() && fromUserResult->hasMoreToFetch(), "Sender user does not exist");
-        #endif
-        oatpp::Int64 fromUserId = fromUserResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-
-        auto toUserResult = m_appClient->getUserIdByUuid(friendRequest->toUserUuid);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(toUserResult->isSuccess(), toUserResult->getErrorMessage());
-        ASYNC_THROW_IF(toUserResult->hasMoreToFetch(), "Receiver user does not exist");
-        #else
-        ASYNC_THROW_IF(toUserResult->isSuccess() && toUserResult->hasMoreToFetch(), "Receiver user does not exist");
-        #endif
-        oatpp::Int64 toUserId = toUserResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-
-        auto updateResult = m_appClient->updateFriendRequestStatus(requestUuid, "accepted");
+        // Update friend request with identity check and status guard
+        auto updateResult = m_appClient->handleFriendRequest(requestUuid, status, currentUserId);
         #ifdef SQLCHECK
         ASYNC_THROW_IF(updateResult->isSuccess(), updateResult->getErrorMessage());
-        ASYNC_THROW_IF(updateResult->hasMoreToFetch(), "Friend request does not exist");
+        ASYNC_THROW_IF(!updateResult->hasMoreToFetch(), "Friend request not found, already processed, or permission denied");
         #else
-        ASYNC_THROW_IF(updateResult->isSuccess() && updateResult->hasMoreToFetch(), "Friend request does not exist");
+        ASYNC_THROW_IF(updateResult->isSuccess() || !updateResult->hasMoreToFetch(), "Friend request not found, already processed, or permission denied");
         #endif
 
-        auto checkFriendshipResult = m_appClient->checkFriendshipStatus(fromUserId, toUserId);
-        ASYNC_THROW_IF(checkFriendshipResult->isSuccess(), checkFriendshipResult->getErrorMessage());
+        // Get from_user_id and to_user_id from the result
+        auto ids = updateResult->fetch<oatpp::Vector<oatpp::Object<FriendRequestIdsDTO>>>()[0];
+        oatpp::Int64 fromUserId = ids->fromUserId;
+        oatpp::Int64 toUserId = ids->toUserId;
 
-        if (checkFriendshipResult->hasMoreToFetch()) {
-            auto updateFriendshipResult = m_appClient->acceptFriendshipStatus(fromUserId, toUserId);
-            ASYNC_THROW_IF(updateFriendshipResult->isSuccess(), updateFriendshipResult->getErrorMessage());
-        } else {
-            auto createFriendshipResult = m_appClient->createFriendship(fromUserId, toUserId);
-            ASYNC_THROW_IF(createFriendshipResult->isSuccess(), createFriendshipResult->getErrorMessage());
+        // If accepted, create friendship and conversations
+        if (status == "accepted") {
+            auto checkFriendshipResult = m_appClient->checkFriendshipStatus(fromUserId, toUserId);
+            ASYNC_THROW_IF(checkFriendshipResult->isSuccess(), checkFriendshipResult->getErrorMessage());
+
+            if (checkFriendshipResult->hasMoreToFetch()) {
+                auto updateFriendshipResult = m_appClient->acceptFriendshipStatus(fromUserId, toUserId);
+                ASYNC_THROW_IF(updateFriendshipResult->isSuccess(), updateFriendshipResult->getErrorMessage());
+            } else {
+                auto createFriendshipResult = m_appClient->createFriendship(fromUserId, toUserId);
+                ASYNC_THROW_IF(createFriendshipResult->isSuccess(), createFriendshipResult->getErrorMessage());
+            }
+
+            auto createConv1Result = m_appClient->createPrivateConversation(fromUserId, toUserId);
+            #ifdef SQLCHECK
+            if (!createConv1Result->isSuccess()) {
+                OATPP_LOGD("WARRING", "%s", createConv1Result->getErrorMessage());
+            }
+            #endif
+
+            auto createConv2Result = m_appClient->createPrivateConversation(toUserId, fromUserId);
+            #ifdef SQLCHECK
+            if (!createConv2Result->isSuccess()) {
+                OATPP_LOGD("WARRING", "%s", createConv2Result->getErrorMessage());
+            }
+            #endif
         }
 
-        auto createConv1Result = m_appClient->createPrivateConversation(fromUserId, toUserId);
-        #ifdef SQLCHECK
-        if (!createConv1Result->isSuccess()) {
-            OATPP_LOGD("WARRING", "%s", createConv1Result->getErrorMessage());
-        }
-        #endif
-
-        auto createConv2Result = m_appClient->createPrivateConversation(toUserId, fromUserId);
-        #ifdef SQLCHECK
-        if (!createConv2Result->isSuccess()) {
-            OATPP_LOGD("WARRING", "%s", createConv2Result->getErrorMessage());
-        }
-        #endif
-
-        return true;
-    }
-
-    oatpp::Boolean rejectFriendRequest(const oatpp::String& requestUuid) {
-        ASYNC_THROW_IF(requestUuid && !requestUuid->empty(), "Request ID cannot be empty");
-        auto result = m_appClient->updateFriendRequestStatus(requestUuid, "reject");
-        ASYNC_THROW_IF(result->isSuccess(), "Failed to reject friend request");
-        return true;
-    }
-
-    oatpp::Boolean cancelFriendRequest(const oatpp::String& requestUuid) {
-        ASYNC_THROW_IF(requestUuid && !requestUuid->empty(), "Request ID cannot be empty");
-        auto result = m_appClient->cancelFriendRequest(requestUuid);
-        ASYNC_THROW_IF(result->isSuccess(), "Failed to cancel friend request");
         return true;
     }
 

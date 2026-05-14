@@ -6,7 +6,7 @@
 #include"controller/FriendController.hpp"
 #include "controller/MessageController.hpp"
 #include "controller/GroupController.hpp"
-//#include "controller/FileController.hpp"
+#include "controller/FileController.hpp"
 #include "controller/ConversationController.hpp"
 //#include "controller/NotificationController.hpp"
 #include "controller/UserStatusController.hpp"
@@ -35,14 +35,7 @@ static void run() {
 	// OATPP_COMPONENT(std::shared_ptr<AppEmail>, email);
 	//OATPP_COMPONENT(std::shared_ptr<AppWebSocket>, websocket);
 
-	//router->addController(AuthController::createShared());
-	//router->addController(FriendController::createShared());
-	//router->addController(MessageController::createShared());
-	//router->addController(GroupController::createShared());
-	////router->addController(FileController::createShared());
-	//router->addController(ConversationController::createShared());
-	////router->addController(NotificationController::createShared());
-	//router->addController(UserStatusController::createShared());
+
 
 #ifdef SWAGGER
 	oatpp::web::server::api::Endpoints docEndpoints;
@@ -50,15 +43,26 @@ static void run() {
 	docEndpoints.append(router->addController(FriendController::createShared())->getEndpoints());
 	docEndpoints.append(router->addController(MessageController::createShared())->getEndpoints());
 	docEndpoints.append(router->addController(GroupController::createShared())->getEndpoints());
-	//docEndpoints.append(router->addController(FileController::createShared())->getEndpoints());
+	docEndpoints.append(router->addController(FileController::createShared())->getEndpoints());
 	docEndpoints.append(router->addController(ConversationController::createShared())->getEndpoints());
 	//docEndpoints.append(router->addController(NotificationController::createShared())->getEndpoints());
 	docEndpoints.append(router->addController(UserStatusController::createShared())->getEndpoints());
+	//docEndpoints.append(NotificationController::createShared()->getEndpoints());
+	docEndpoints.append(UserStatusController::createShared()->getEndpoints());
+
 
 
 	auto swaggerController = oatpp::swagger::Controller::createShared(docEndpoints);
-
 	router->addController(swaggerController);
+#else
+	router->addController(AuthController::createShared());
+	router->addController(FriendController::createShared());
+	router->addController(MessageController::createShared());
+	router->addController(GroupController::createShared());
+	router->addController(FileController::createShared());
+	router->addController(ConversationController::createShared());
+	//router->addController(NotificationController::createShared());
+	router->addController(UserStatusController::createShared());
 #endif
 
 	/* Get connection handler component */

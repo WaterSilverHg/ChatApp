@@ -11,11 +11,12 @@ std::shared_ptr<AppAuthHandler::AuthorizationObject> AppAuthHandler::authorize(c
 		return nullptr;
 	}
 
-	// 从JWT中获取用户ID
+	// 从JWT中获取用户ID和sessionId
 	std::string userUuid = authObj->userUuid;
+	std::string sessionId = authObj->sessionId;
 
-	// 验证Redis中的令牌
-	if (!m_redis->validateToken(userUuid, token.getValue(""))) {
+	// 验证Redis中的sessionId
+	if (!m_redis->validateSession(userUuid, sessionId)) {
 		return nullptr;
 	}
 

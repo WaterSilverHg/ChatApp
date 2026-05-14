@@ -42,5 +42,6 @@
 // 全局常量
 static const QString HTTP_BASE_URL = "http://127.0.0.1:8080";
 static const QString WEBSOCKET_URL = "ws://127.0.0.1:4567/ws";
+static const int MESSAGE_PAGE_SIZE = 50;
 
 #endif // GLOBAL_H

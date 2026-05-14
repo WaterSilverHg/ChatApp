@@ -65,17 +65,17 @@ public:
         return createDtoResponse(Status::CODE_200, m_authService->resetPassword(request));
     }
 
-    ENDPOINT_INFO(logout) {
-        info->summary = "用户登出";
-        info->description = "用户登出，删除Redis中的令牌";
-        info->addResponse<Boolean>(Status::CODE_200, "application/json", "登出成功");
-        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "用户不存在或已失效");
-        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "请求参数错误");
-        info->addSecurityRequirement("BearerAuth");
-    }
-    ENDPOINT("POST", "/api/auth/logout", logout, AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject)) {
-        return createDtoResponse(Status::CODE_200, m_authService->logout(authObject->userUuid));
-    }
+    //ENDPOINT_INFO(logout) {
+    //    info->summary = "用户登出";
+    //    info->description = "用户登出，删除Redis中的令牌";
+    //    info->addResponse<Boolean>(Status::CODE_200, "application/json", "登出成功");
+    //    info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "用户不存在或已失效");
+    //    info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "请求参数错误");
+    //    info->addSecurityRequirement("BearerAuth");
+    //}
+    //ENDPOINT("POST", "/api/auth/logout", logout, AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject)) {
+    //    return createDtoResponse(Status::CODE_200, m_authService->logout(authObject->userUuid));
+    //}
 
     ENDPOINT_INFO(sendVerificationCode) {
         info->summary = "发送验证码";

@@ -30,15 +30,18 @@ public:
     void getSentRequests();
     void getReceivedRequests();
     void getFriends();
+
+    void getReceivedGroupRequests();
+    void getSentGroupRequests();
     void updateFriendRemark(const QString& friendId, const QString& remark);
     void updateFriendGroup(const QString& friendId, const QString& group);
     void blockUser(const QString& targetUserId);
     void unblockUser(const QString& targetUserId);
 
-    void getPrivateMessages(const QString& uid);
+    void getPrivateMessagesBefore(const QString& uid, const QString& msgUuid, int size);
     void getPrivateMessagesPage(const QString& uid, int page, int size);
     //void markMessageRead(const QString& mid);
-    void getGroupMessages(const QString& gid);
+    void getGroupMessagesBefore(const QString& gid, const QString& msgUuid, int size);
     void getGroupMessagesPage(const QString& gid, int page, int size);
 
     void getMyGroups();
@@ -51,6 +54,9 @@ public:
 
     void updateStatus(const QString& status);
     void getMultipleStatuses(const QJsonArray& userIds);
+
+    void uploadAvatarFile(const QString& fileName, const QString& mimeType, qint64 fileSize, const QByteArray& fileData);
+    void abortAllRequests();
 
 signals:
     void loginSuccess(const QJsonObject& data);
@@ -66,16 +72,21 @@ signals:
     void sentRequestsReceived(const QJsonArray& requests);
     void receivedRequestsReceived(const QJsonArray& requests);
     void friendsListReceived(const QJsonArray& friends);
+
+    void receivedGroupRequestsReceived(const QJsonArray& requests);
+    void sentGroupRequestsReceived(const QJsonArray& requests);
     void friendRemarkUpdated(bool success);
     void friendGroupUpdated(bool success);
     void userBlocked(bool success);
     void userUnblocked(bool success);
 
     void privateMessagesReceived(const QString& convUuid, const QJsonArray& messages);
-    void privateMessagesPageReceived(const QJsonArray& messages);
+    void privateMessagesBeforeReceived(const QString& convUuid, const QJsonArray& messages);
+    void privateMessagesPageReceived(const QString& convUuid, const QJsonArray& messages);
     void messageMarkedRead(bool success);
     void groupMessagesReceived(const QString& convUuid, const QJsonArray& messages);
-    void groupMessagesPageReceived(const QJsonArray& messages);
+    void groupMessagesBeforeReceived(const QString& convUuid, const QJsonArray& messages);
+    void groupMessagesPageReceived(const QString& convUuid, const QJsonArray& messages);
 
     void myGroupsReceived(const QJsonArray& groups);
     void groupDetailReceived(const QJsonObject& group);
@@ -87,6 +98,7 @@ signals:
 
     void statusUpdated(const QJsonObject& statusInfo);
     void multipleStatusesReceived(const QJsonArray& statuses);
+    void fileUploaded(const QJsonObject& fileInfo);
 
     void errorOccurred(const QString& errorMessage, int errorCode = 0);
 
@@ -103,6 +115,7 @@ private:
         const QJsonObject& data = QJsonObject());
     void sendAuthenticatedRequest(const QString& method, const QString& endpoint,
                                   const QJsonObject& data);
+    QString extractUuidFromUrl(const QString& url, const QString& prefix) const;
     void addAuthHeader(QNetworkRequest& request);
 
     static HttpApiClient* s_instance;
@@ -110,6 +123,9 @@ private:
     QNetworkAccessManager* m_nam;
     QString m_serverUrl;
     QString m_authToken;
+    QList<QNetworkReply*> m_pendingReplies;
+    
+    QByteArray m_pendingFileData;
 };
 
 #endif // HTTPAPICLIENT_H

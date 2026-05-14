@@ -31,7 +31,7 @@ public:
     //      PARAM(oatpp::String, email))
 
     // 根据ID查找用户
-    QUERY(getUserById,
+    QUERY(getUserInfoById,
           "SELECT CAST(uuid AS VARCHAR) AS useruuid, username, email, avatar_url AS avatarurl, status, TO_CHAR(last_login, 'YYYY-MM-DD HH24:MI:SS') AS lastseen FROM users WHERE id = :userId AND deleted_at IS NULL;",
           PARAM(oatpp::Int64, userId))
 
@@ -66,6 +66,12 @@ public:
           "UPDATE users SET username = :username, avatar_url = :avatarUrl WHERE id = :userId AND deleted_at IS NULL;",
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::String, username),
+          PARAM(oatpp::String, avatarUrl))
+
+    // 更新用户头像
+    QUERY(updateUserAvatar,
+          "UPDATE users SET avatar_url = :avatarUrl, updated_at = NOW() WHERE id = :userId AND deleted_at IS NULL;",
+          PARAM(oatpp::Int64, userId),
           PARAM(oatpp::String, avatarUrl))
 
     // 修改密码
@@ -123,6 +129,42 @@ public:
         "  CAST(fr.uuid AS VARCHAR) AS uuid,"
         "  CAST(u.uuid AS VARCHAR) AS fromUserUuid, "
         "  CAST(to_user.uuid AS VARCHAR) AS toUserUuid, "
+        "  fr.status, "
+        "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt, "
+        "  fr.message "
+        "FROM friend_requests fr "
+        "JOIN users u ON fr.from_user_id = u.id "
+        "JOIN users to_user ON fr.to_user_id = to_user.id " 
+        "WHERE fr.from_user_id = :userId AND fr.status = 'pending' "
+        "ORDER BY fr.created_at DESC;",
+        PARAM(oatpp::Int64, userId))
+
+    // 获取收到的好友请求（包含请求方用户信息）
+    QUERY(getReceivedFriendRequestsWithUserInfo,
+        "SELECT "
+        "  CAST(fr.uuid AS VARCHAR) AS uuid,"
+        "  CAST(from_user.uuid AS VARCHAR) AS fromUserUuid, "
+        "  from_user.username AS fromUsername, "
+        "  from_user.avatar_url AS fromAvatarUrl, "
+        "  CAST(to_user.uuid AS VARCHAR) AS toUserUuid, "
+        "  fr.status, "
+        "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt, "
+        "  fr.message "
+        "FROM friend_requests fr "
+        "JOIN users from_user ON fr.from_user_id = from_user.id "
+        "JOIN users to_user ON fr.to_user_id = to_user.id "
+        "WHERE fr.to_user_id = :userId AND fr.status = 'pending' "
+        "ORDER BY fr.created_at DESC;",
+        PARAM(oatpp::Int64, userId))
+
+    // 获取已发送的好友请求（包含接收方用户信息）
+    QUERY(getSentFriendRequestsWithUserInfo,
+        "SELECT "
+        "  CAST(fr.uuid AS VARCHAR) AS uuid,"
+        "  CAST(u.uuid AS VARCHAR) AS fromUserUuid, "
+        "  CAST(to_user.uuid AS VARCHAR) AS toUserUuid, "
+        "  to_user.username AS toUsername, "
+        "  to_user.avatar_url AS toAvatarUrl, "
         "  fr.status, "
         "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt, "
         "  fr.message "
@@ -267,6 +309,36 @@ QUERY(sendPrivateMessage,
             PARAM(oatpp::Int32, limit),
             PARAM(oatpp::Int32, offset))
 
+    // 获取私聊消息（基于msgUuid之前的消息）
+    QUERY(getPrivateMessagesBefore,
+        "SELECT * FROM ("
+        "  SELECT "
+        "    CAST(m.uuid AS VARCHAR) AS uuid, "
+        "    CAST(from_user.uuid AS VARCHAR) AS fromuseruuid, "
+        "    from_user.username AS username, "
+        "    from_user.avatar_url AS avatarurl, "
+        "    m.message_type AS messagetype, "
+        "    m.content, "
+        "    m.file_url AS fileurl, "
+        "    m.file_size AS filesize, "
+        "    m.file_name AS filename, "
+        "    m.mime_type AS mimetype, "
+        "    TO_CHAR(m.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
+        "  FROM messages m "
+        "  JOIN users from_user ON m.from_user_id = from_user.id "
+        "  JOIN users to_user ON m.to_user_id = to_user.id "
+        "  WHERE ((m.from_user_id = :userId AND m.to_user_id = :friendId) "
+        "     OR (m.from_user_id = :friendId AND m.to_user_id = :userId)) "
+        "     AND m.id < :msgId "
+        "  ORDER BY m.created_at DESC "
+        "  LIMIT :limit "
+        ") AS recent_messages "
+        "ORDER BY recent_messages.createdat ASC;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, friendId),
+        PARAM(oatpp::Int64, msgId),
+        PARAM(oatpp::Int32, limit))
+
 
     // 标记消息为已读
     QUERY(markMessageRead, 
@@ -334,6 +406,34 @@ QUERY(sendPrivateMessage,
             PARAM(oatpp::Int64, groupId),
             PARAM(oatpp::Int32, limit),
             PARAM(oatpp::Int32, offset))
+
+    // 获取群聊消息（基于msgUuid之前的消息）
+    QUERY(getGroupMessagesBefore,
+            "SELECT * FROM ("
+            "  SELECT "
+            "    CAST(m.uuid AS VARCHAR) AS uuid, "
+            "    CAST(from_user.uuid AS VARCHAR) AS fromuseruuid, "
+            "    from_user.username AS username, "
+            "    from_user.avatar_url AS avatarurl, "
+            "    m.message_type AS messagetype, "
+            "    m.content, "
+            "    m.file_url AS fileurl, "
+            "    m.file_size AS filesize, "
+            "    m.file_name AS filename, "
+            "    m.mime_type AS mimetype, "
+            "    TO_CHAR(m.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
+            "  FROM messages m "
+            "  JOIN users from_user ON m.from_user_id = from_user.id "
+            "  JOIN groups g ON m.to_group_id = g.id "
+            "  WHERE m.to_group_id = :groupId "
+            "     AND m.id < :msgId "
+            "  ORDER BY m.created_at DESC "
+            "  LIMIT :limit "
+            ") AS recent_messages "
+            "ORDER BY recent_messages.createdat ASC;",
+            PARAM(oatpp::Int64, groupId),
+            PARAM(oatpp::Int64, msgId),
+            PARAM(oatpp::Int32, limit))
 
         // 获取离线消息
     QUERY(getOfflineMessages,
@@ -492,30 +592,76 @@ QUERY(sendPrivateMessage,
           PARAM(oatpp::Int64, groupId),
           PARAM(oatpp::Int64, userId))
 
+    // ==================== 群聊请求相关 ====================
+    // 发送群聊请求
+    QUERY(sendGroupRequest,
+        "INSERT INTO group_requests (group_id, requester_id, message) VALUES (:groupId, :requesterId, :message);",
+        PARAM(oatpp::Int64, groupId),
+        PARAM(oatpp::Int64, requesterId),
+        PARAM(oatpp::String, message))
+
+    // 获取我作为管理员/群主收到的群聊请求
+    QUERY(getReceivedGroupRequests,
+        "SELECT "
+        "  CAST(gr.uuid AS VARCHAR) AS uuid, "
+        "  CAST(g.uuid AS VARCHAR) AS groupUuid, "
+        "  g.name AS groupName, "
+        "  CAST(u.uuid AS VARCHAR) AS requesterUuid, "
+        "  u.username AS requesterName, "
+        "  u.avatar_url AS requesterAvatar, "
+        "  gr.message, "
+        "  gr.status, "
+        "  TO_CHAR(gr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+        "FROM group_requests gr "
+        "JOIN groups g ON gr.group_id = g.id "
+        "JOIN users u ON gr.requester_id = u.id "
+        "JOIN group_members gm ON g.id = gm.group_id "
+        "WHERE gm.user_id = :userId AND gm.role IN ('owner', 'admin') AND gr.status = 'pending' "
+        "ORDER BY gr.created_at DESC;",
+        PARAM(oatpp::Int64, userId))
+
+    // 获取我发送的群聊请求
+    QUERY(getSentGroupRequests,
+        "SELECT "
+        "  CAST(gr.uuid AS VARCHAR) AS uuid, "
+        "  CAST(g.uuid AS VARCHAR) AS groupUuid, "
+        "  g.name AS groupName, "
+        "  g.avatar_url AS groupAvatar, "
+        "  gr.message, "
+        "  gr.status, "
+        "  TO_CHAR(gr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+        "FROM group_requests gr "
+        "JOIN groups g ON gr.group_id = g.id "
+        "WHERE gr.requester_id = :userId AND gr.status = 'pending' "
+        "ORDER BY gr.created_at DESC;",
+        PARAM(oatpp::Int64, userId))
+
+    // 处理群聊请求（通过/拒绝）
+    QUERY(handleGroupRequest,
+        "UPDATE group_requests SET status = :status, reviewer_id = :reviewerId, reviewed_at = NOW() WHERE uuid = CAST(:requestUuid AS uuid);",
+        PARAM(oatpp::String, requestUuid),
+        PARAM(oatpp::String, status),
+        PARAM(oatpp::Int64, reviewerId))
+
     // ==================== 会话相关 ====================
-    // 获取会话列表
     QUERY(getConversations,
         "SELECT "
         "  CASE "
         "    WHEN c.target_user_id IS NOT NULL THEN 'private' "
         "    ELSE 'group' "
         "  END AS type, "
-        "  COALESCE( "
-        "    CAST(u.uuid AS VARCHAR), "
-        "    CAST(g.uuid AS VARCHAR) "
-        "  ) AS targetUuid, "
+        "  COALESCE(CAST(u.uuid AS VARCHAR), CAST(g.uuid AS VARCHAR)) AS targetUuid, "
         "  COALESCE(u.username, g.name) AS targetName, "
         "  COALESCE(u.avatar_url, g.avatar_url) AS targetAvatar, "
         "  m.content AS lastMessage, "
         "  m.message_type AS lastMessageType, "
         "  TO_CHAR(m.created_at, 'YYYY-MM-DD HH24:MI:SS') AS lastMessageTime, "
         "  c.unread_count AS unreadCount, "
-        "  COALESCE(gm.is_muted, false) AS isMuted "
+        "  c.is_muted AS isMuted "
         "FROM conversations c "
         "LEFT JOIN users u ON c.target_user_id = u.id AND u.deleted_at IS NULL "
         "LEFT JOIN groups g ON c.target_group_id = g.id AND g.deleted_at IS NULL "
         "LEFT JOIN messages m ON c.last_message_id = m.id "
-        "LEFT JOIN group_members gm ON gm.group_id = c.target_group_id AND gm.user_id = c.user_id "
         "WHERE c.user_id = :userId "
         "ORDER BY c.updated_at DESC;",
         PARAM(oatpp::Int64, userId))
@@ -634,6 +780,11 @@ QUERY(sendPrivateMessage,
         PARAM(oatpp::Int64, conversationId),
         PARAM(oatpp::Int64, userId))
 
+    // 根据会话uuid获取会话ID
+    QUERY(getConversationIdByUuid,
+        "SELECT id FROM conversations WHERE uuid = CAST(:convUuid AS uuid);",
+        PARAM(oatpp::String, convUuid))
+
     // 获取会话成员
     //QUERY(getConversationMembers, 
     //      "SELECT cm.id, u.id as userId, u.username, u.avatar_url AS avatarUrl, cm.role, cm.joined_at AS joinedAt "
@@ -649,31 +800,64 @@ QUERY(sendPrivateMessage,
     //      PARAM(oatpp::Int64, userId))
 
     // ==================== 文件相关 ====================
-    // 上传文件
-    QUERY(uploadFile, 
-          "INSERT INTO files (file_name, file_size, mime_type, file_path, storage_type, user_id) "
-           "VALUES(:fileName, :fileSize, :mimeType, :fileUrl, :fileType, :userId) RETURNING id, file_name AS fileName, file_size AS fileSize, mime_type AS mimeType, file_path AS fileUrl, user_id AS userId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt; ",
-          PARAM(oatpp::String, fileName),
-          PARAM(oatpp::Int64, fileSize),
-          PARAM(oatpp::String, mimeType),
-          PARAM(oatpp::String, fileUrl),
-          PARAM(oatpp::String, fileType),
-          PARAM(oatpp::Int64, userId))
+    QUERY(createFileRecord,
+        "INSERT INTO files (file_name, file_size,file_type, mime_type, user_id, upload_status) "
+        "VALUES (:fileName, :fileSize,:fileType, :mimeType, :userId, 'uploading') "
+        "RETURNING CAST(uuid AS VARCHAR) AS uuid, "
+        "         file_name AS filename, "
+        "         file_size AS filesize, "
+        "         mime_type AS mimetype, "
+        "         file_path AS fileurl; ", 
+        PARAM(oatpp::String, fileName),
+        PARAM(oatpp::Int64, fileSize),
+        PARAM(oatpp::String, fileType),
+        PARAM(oatpp::String, mimeType),
+        PARAM(oatpp::Int64, userId))
+
+        QUERY(updateFileStatus,
+            "UPDATE files SET upload_status = :status, file_path = :filePath WHERE id = :fileId "
+            "RETURNING CAST(uuid AS VARCHAR) AS uuid, "
+            "         file_name AS filename, "
+            "         'file' AS filetype, "
+            "         mime_type AS mimetype, "
+            "         file_size AS filesize, "
+            "         file_path AS fileurl",
+            PARAM(oatpp::String, status),
+            PARAM(oatpp::String, filePath),
+            PARAM(oatpp::Int64, fileId))
 
     // 获取文件列表
-    QUERY(getFileList, 
-          "SELECT id, file_name AS fileName, storage_type AS fileType, file_size AS fileSize, file_path AS fileUrl, user_id AS uploaderId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
-        "FROM files "
-        "WHERE user_id = :userId "
-        " ORDER BY created_at DESC;",
-          PARAM(oatpp::Int64, userId))
-
-    // 获取文件详情
-    QUERY(getFileDetail, 
-          "SELECT id, file_name AS fileName, storage_type AS fileType, file_size AS fileSize, file_path AS fileUrl, user_id AS uploaderId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
-        "FROM files "
-           "WHERE id = :id;",
-          PARAM(oatpp::Int64, id))
+    //QUERY(getFileList, 
+    //      "SELECT id, file_name AS fileName, storage_type AS fileType, file_size AS fileSize, file_path AS fileUrl, user_id AS uploaderId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+    //    "FROM files "
+    //    "WHERE user_id = :userId "
+    //    " ORDER BY created_at DESC;",
+    //      PARAM(oatpp::Int64, userId))
+        //获取文件信息
+        QUERY(getFileById,
+            "SELECT CAST(uuid AS VARCHAR) AS uuid, "
+            "       file_name AS fileName, "
+            "       file_type AS fileType, "
+            "       file_size AS fileSize, "
+            "       file_path AS fileUrl, "
+            "       mime_type AS mimeType "
+            "FROM files "
+            "WHERE id = :id;",
+            PARAM(oatpp::Int64, id))
+        //获取文件详情
+        QUERY(getFileDetailById,
+            "SELECT CAST(f.uuid AS VARCHAR) AS uuid, "
+            "       f.file_name AS fileName, "
+            "       f.file_type AS fileType, "
+            "       f.file_size AS fileSize, "
+            "       f.file_path AS fileUrl, "
+            "       f.mime_type AS mimeType, "
+            "       CAST(u.uuid AS VARCHAR) AS uploaderUuid, "
+            "       TO_CHAR(f.created_at, 'YYYY-MM-DD HH24:MI:SS') AS uploadtime "
+            "FROM files f "
+            "JOIN users u ON f.user_id = u.id "
+            "WHERE f.id = :id",
+            PARAM(oatpp::Int64, id))
 
     // 删除文件
     QUERY(deleteFile, 

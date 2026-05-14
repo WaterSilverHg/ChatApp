@@ -30,7 +30,7 @@ public:
     ENDPOINT_INFO(getSentRequests) {
         info->summary = "获取已发送的请求";
         info->description = "获取当前用户已发送的好友请求列表";
-        info->addResponse<oatpp::Vector<oatpp::Object<FriendResponseVO>>>(Status::CODE_200, "application/json", "获取成功");
+        info->addResponse<oatpp::Vector<oatpp::Object<SentFriendRequestVO>>>(Status::CODE_200, "application/json", "获取成功");
         info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "用户不存在或已失效");
         info->addResponse<Object<ErrorStatusDto>>(Status::CODE_500, "application/json", "获取请求失败");
         info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "请求参数错误");
@@ -44,7 +44,7 @@ public:
     ENDPOINT_INFO(getReceivedRequests) {
         info->summary = "获取收到的请求";
         info->description = "获取当前用户收到的好友请求列表";
-        info->addResponse<oatpp::Vector<oatpp::Object<FriendResponseVO>>>(Status::CODE_200, "application/json", "获取成功");
+        info->addResponse<oatpp::Vector<oatpp::Object<ReceivedFriendRequestVO>>>(Status::CODE_200, "application/json", "获取成功");
         info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "用户不存在或已失效");
         info->addResponse<Object<ErrorStatusDto>>(Status::CODE_500, "application/json", "获取请求失败");
         info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "请求参数错误");
@@ -64,7 +64,7 @@ public:
         info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "请求参数错误");
         info->addSecurityRequirement("BearerAuth");
     }
-    ENDPOINT("GET", "/api/friends", getFriends,
+    ENDPOINT("GET", "/api/friends/list", getFriends,
         AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject)) {
         return createDtoResponse(Status::CODE_200, m_friendService->getFriends(authObject->userUuid));
     }

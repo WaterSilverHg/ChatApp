@@ -25,7 +25,7 @@ CREATE TABLE users (
 
 CREATE INDEX idx_users_username ON users(username) WHERE deleted_at IS NULL;
 CREATE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
-CREATE INDEX idx_users_uuid ON users(uuid);
+-- CREATE INDEX idx_users_uuid ON users(uuid);
 CREATE INDEX idx_users_status_deleted ON users(status, deleted_at);
 
 COMMENT ON TABLE users IS 'Users table';
@@ -67,7 +67,7 @@ CREATE TABLE friendships (
 
 CREATE INDEX idx_friendships_user_id ON friendships(user_id, status);
 CREATE INDEX idx_friendships_friend_id ON friendships(friend_id);
-CREATE INDEX idx_friendships_status ON friendships(status);
+--CREATE INDEX idx_friendships_status ON friendships(status);
 
 -- 群组表
 CREATE TABLE groups (
@@ -86,7 +86,7 @@ CREATE TABLE groups (
 );
 
 CREATE INDEX idx_groups_owner ON groups(owner_id);
-CREATE INDEX idx_groups_uuid ON groups(uuid);
+-- CREATE INDEX idx_groups_uuid ON groups(uuid);
 CREATE INDEX idx_groups_is_public ON groups(is_public) WHERE deleted_at IS NULL;
 
 -- 群组成员表
@@ -98,7 +98,6 @@ CREATE TABLE group_members (
     nickname VARCHAR(50),
     joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     last_read_msg_id BIGINT,
-    is_muted BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     
     UNIQUE(group_id, user_id)
@@ -133,7 +132,7 @@ CREATE TABLE messages (
 CREATE INDEX idx_messages_from_user ON messages(from_user_id, created_at);
 CREATE INDEX idx_messages_to_user ON messages(to_user_id, created_at);
 CREATE INDEX idx_messages_to_group ON messages(to_group_id, created_at);
-CREATE INDEX idx_messages_uuid ON messages(uuid);
+-- CREATE INDEX idx_messages_uuid ON messages(uuid);
 CREATE INDEX idx_messages_created_at ON messages(created_at);
 
 -- 好友请求表
@@ -152,8 +151,28 @@ CREATE TABLE friend_requests (
 );
 
 -- UUID 索引
-CREATE INDEX idx_friend_requests_to_user ON friend_requests(to_user_id, status);
-CREATE UNIQUE INDEX idx_friend_requests_uuid ON friend_requests(uuid);
+CREATE INDEX idx_friend_requests_to_user ON friend_requests(to_user_id);
+CREATE INDEX idx_friend_requests_from_user ON friend_requests(from_user_id);
+-- CREATE UNIQUE INDEX idx_friend_requests_uuid ON friend_requests(uuid);
+
+-- 群组加入请求表
+CREATE TABLE group_requests (
+    id BIGSERIAL PRIMARY KEY,
+    uuid UUID NOT NULL DEFAULT uuid_generate_v4(),
+    group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    requester_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- 申请人
+    message TEXT,                                   -- 申请附言
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+    reviewer_id BIGINT REFERENCES users(id) ON DELETE SET NULL,           -- 审批人（群主/管理员）
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(group_id, requester_id)  -- 防止重复申请
+);
+
+--CREATE INDEX idx_group_requests_group ON group_requests(group_id, status);
+CREATE INDEX idx_group_requests_requester ON group_requests(requester_id);
 
 -- 文件表
 CREATE TABLE files (
@@ -161,8 +180,9 @@ CREATE TABLE files (
     uuid UUID NOT NULL DEFAULT uuid_generate_v4(),
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     file_name VARCHAR(255) NOT NULL,
-    file_path TEXT NOT NULL,
+    file_path TEXT,
     file_size BIGINT NOT NULL,
+    file_type VARCHAR(100),
     mime_type VARCHAR(100),
     md5_hash VARCHAR(32),
     upload_status VARCHAR(20) DEFAULT 'uploading' CHECK (upload_status IN ('uploading', 'completed', 'failed')),
@@ -172,7 +192,7 @@ CREATE TABLE files (
 
 CREATE INDEX idx_files_user ON files(user_id);
 CREATE INDEX idx_files_md5 ON files(md5_hash);
-CREATE INDEX idx_files_uuid ON files(uuid);
+-- CREATE INDEX idx_files_uuid ON files(uuid);
 
 -- 会话表
 CREATE TABLE conversations (
@@ -180,11 +200,13 @@ CREATE TABLE conversations (
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     target_user_id BIGINT,
     target_group_id BIGINT,
+    last_read_message_id BIGINT REFERENCES messages(id) ON DELETE SET NULL,
     last_message_id BIGINT REFERENCES messages(id) ON DELETE SET NULL,
     unread_count INTEGER DEFAULT 0,
     last_read_time TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    is_muted BOOLEAN DEFAULT false,
     
     CONSTRAINT conversations_target_check CHECK (
         (target_user_id IS NOT NULL AND target_group_id IS NULL) OR

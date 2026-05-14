@@ -1,16 +1,53 @@
 #pragma once
 
 #include "global.h"
+#include"../vo/UserStatusVo.hpp"
 
 #include OATPP_CODEGEN_BEGIN(DTO) 
 
 // 好友请求
-class FriendRequestDTO : public oatpp::DTO {
-    DTO_INIT(FriendRequestDTO, DTO)
-    DTO_FIELD(String, uuid, "uuid");
-    DTO_FIELD(String, fromUserId, "fromuserid");
-    DTO_FIELD(String, toUserId, "touserid");
+//class FriendRequestDTO : public oatpp::DTO {
+//    DTO_INIT(FriendRequestDTO, DTO)
+//    DTO_FIELD(String, uuid, "uuid");
+//    DTO_FIELD(String, fromUserId, "fromuserid");
+//    DTO_FIELD(String, toUserId, "touserid");
+//    DTO_FIELD(String, status, "status"); // pending, accepted, rejected
+//    DTO_FIELD(String, createdAt, "createdat");
+//    DTO_FIELD(String, message, "message");
+//};
+// 好友请求
+class FriendRequestResponseDTO : public oatpp::DTO {
+    DTO_INIT(FriendRequestResponseDTO, DTO)
+        DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(String, fromUserUuid, "fromuseruuid");
+    DTO_FIELD(String, toUserUuid, "touseruuid");
     DTO_FIELD(String, status, "status"); // pending, accepted, rejected
+    DTO_FIELD(String, createdAt, "createdat");
+    DTO_FIELD(String, message, "message");
+};
+
+// 好友请求（包含请求方用户信息）
+class ReceivedFriendRequestDetailDTO : public oatpp::DTO {
+    DTO_INIT(ReceivedFriendRequestDetailDTO, DTO)
+    DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(String, fromUserUuid, "fromuseruuid");
+    DTO_FIELD(String, fromUsername, "fromusername");
+    DTO_FIELD(String, fromAvatarUrl, "fromavatarurl");
+    DTO_FIELD(String, toUserUuid, "touseruuid");
+    DTO_FIELD(String, status, "status");
+    DTO_FIELD(String, createdAt, "createdat");
+    DTO_FIELD(String, message, "message");
+};
+
+// 好友请求（包含接收方用户信息）
+class SentFriendRequestDetailDTO : public oatpp::DTO {
+    DTO_INIT(SentFriendRequestDetailDTO, DTO)
+    DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(String, fromUserUuid, "fromuseruuid");
+    DTO_FIELD(String, toUserUuid, "touseruuid");
+    DTO_FIELD(String, toUsername, "tousername");
+    DTO_FIELD(String, toAvatarUrl, "toavatarurl");
+    DTO_FIELD(String, status, "status");
     DTO_FIELD(String, createdAt, "createdat");
     DTO_FIELD(String, message, "message");
 };

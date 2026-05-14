@@ -49,4 +49,11 @@ class UpdateFriendGroupDTO : public oatpp::DTO {
     DTO_FIELD(String, groupUuid, "groupuuid");
 };
 
+// 处理好友请求 (accept/reject/cancel)
+class HandleFriendRequestDTO : public oatpp::DTO {
+    DTO_INIT(HandleFriendRequestDTO, DTO)
+    DTO_FIELD(String, reqUuid, "reqUuid");  // 好友请求UUID
+    DTO_FIELD(String, status, "status");    // accepted/rejected/canceled
+};
+
 #include OATPP_CODEGEN_END(DTO) 

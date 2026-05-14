@@ -26,40 +26,8 @@ public:
         #endif
         auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-        auto result = m_appClient->createGroup(request->name, request->description, request->avatarUrl, userId, request->maxMembers, request->isPublic);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
-        ASYNC_THROW_IF(result->hasMoreToFetch(), "Failed to create group");
-        #else
-        ASYNC_THROW_IF(result->isSuccess() && result->hasMoreToFetch(), "Failed to create group");
-        #endif
-
-        auto group = result->fetch<oatpp::Vector<oatpp::Object<GroupInfoVO>>>()[0];
-        group->memberCount = request->memberUuids->size() + 1;
-        auto transaction = m_appClient->beginTransaction();
-        auto groupCheck = m_appClient->getGroupIdByUuid(group->uuid.getValue(""));
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(groupCheck->isSuccess(), groupCheck->getErrorMessage());
-        ASYNC_THROW_IF(groupCheck->hasMoreToFetch(), "Group does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(groupCheck->isSuccess() && groupCheck->hasMoreToFetch(), "Group does not exist or has been deactivated");
-        #endif
-        auto groupId = groupCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-        auto ownerResult = m_appClient->addGroupMember(groupId, userId, "owner");
-        if (!ownerResult->isSuccess()) {
-            transaction.rollback();
-            ASYNC_THROW_IF(true, "Failed to add group owner");
-        }
-
-        auto ownerConvResult = m_appClient->createGroupConversation(userId, groupId);
-        if (!ownerConvResult->isSuccess()) {
-            transaction.rollback();
-        #ifdef SQLCHECK
-            ASYNC_THROW_IF(true, ownerConvResult->getErrorMessage());
-        #else
-            ASYNC_THROW_IF(true, "Failed to create owner conversation");
-        #endif
-        }
+        // 预先检查所有成员是否存在，避免在事务中失败
+        std::vector<oatpp::Int64> memberIds;
         for (auto& memberUuid : *request->memberUuids) {
             auto memberCheck = m_appClient->getUserIdByUuid(memberUuid);
             #ifdef SQLCHECK
@@ -68,23 +36,88 @@ public:
             #else
             ASYNC_THROW_IF(memberCheck->isSuccess() && memberCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
             #endif
-            auto memberId = memberCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+            memberIds.push_back(memberCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id);
+        }
+
+        // 在事务中执行所有操作
+        auto transaction = m_appClient->beginTransaction();
+
+        auto result = m_appClient->createGroup(request->name, request->description, request->avatarUrl, userId, request->maxMembers, request->isPublic);
+        #ifdef SQLCHECK
+        if (result->isSuccess()) {
+            transaction.rollback();
+            throw std::runtime_error(result->getErrorMessage());
+        }
+        if (!result->hasMoreToFetch()) {
+            transaction.rollback();
+             throw std::runtime_error("Failed to create group");
+        }
+        #else
+        if (result->isSuccess() || !result->hasMoreToFetch()) {
+            transaction.rollback();
+            throw std::runtime_error("Failed to create group");
+        }
+        #endif
+
+        auto group = result->fetch<oatpp::Vector<oatpp::Object<GroupInfoVO>>>()[0];
+        group->memberCount = request->memberUuids->size() + 1;
+
+        auto groupCheck = m_appClient->getGroupIdByUuid(group->uuid.getValue(""));
+        #ifdef SQLCHECK
+        if (groupCheck->isSuccess()) {
+            transaction.rollback();
+            throw std::runtime_error(groupCheck->getErrorMessage());
+        }
+        if (!groupCheck->hasMoreToFetch()) {
+            transaction.rollback();
+            throw std::runtime_error("Group does not exist or has been deactivated");
+        }
+        #else
+        if (groupCheck->isSuccess() || !groupCheck->hasMoreToFetch()) {
+            transaction.rollback();
+            throw std::runtime_error("Group does not exist or has been deactivated");
+        }
+        #endif
+        auto groupId = groupCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto ownerResult = m_appClient->addGroupMember(groupId, userId, "owner");
+        if (!ownerResult->isSuccess()) {
+            transaction.rollback();
+            #ifdef SQLCHECK
+            throw std::runtime_error(ownerResult->getErrorMessage());
+            #else
+            throw std::runtime_error("Failed to add group owner");
+            #endif
+        }
+
+        auto ownerConvResult = m_appClient->createGroupConversation(userId, groupId);
+        if (!ownerConvResult->isSuccess()) {
+            transaction.rollback();
+        #ifdef SQLCHECK
+            throw std::runtime_error(ownerConvResult->getErrorMessage());
+        #else
+            throw std::runtime_error("Failed to create owner conversation");
+        #endif
+        }
+
+        for (size_t i = 0; i < memberIds.size(); ++i) {
+            auto memberId = memberIds[i];
             auto memberResult = m_appClient->addGroupMember(groupId, memberId, "member");
             if (!memberResult->isSuccess()) {
                 transaction.rollback();
             #ifdef SQLCHECK
-                ASYNC_THROW_IF(true, memberResult->getErrorMessage());
+                throw std::runtime_error(memberResult->getErrorMessage());
             #else
-                ASYNC_THROW_IF(true, "Failed to add member");
+                throw std::runtime_error("Failed to add member");
             #endif
             }
             auto convResult = m_appClient->createGroupConversation(memberId, groupId);
             if (!convResult->isSuccess()) {
                 transaction.rollback();
             #ifdef SQLCHECK
-                ASYNC_THROW_IF(true, convResult->getErrorMessage());
+                throw std::runtime_error(convResult->getErrorMessage());
             #else
-                ASYNC_THROW_IF(true, "Failed to create conversation");
+                throw std::runtime_error("Failed to create conversation");
             #endif
             }
         }
@@ -280,22 +313,51 @@ public:
         #endif
         auto groupId = groupCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-        for (const auto& memberId : *request->userUuids) {
-            auto memberCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        // 在事务中执行所有操作
+        auto transaction = m_appClient->beginTransaction();
+
+        for (const auto& memberUuid : *request->userUuids) {
+            auto memberCheck = m_appClient->getUserIdByUuid(memberUuid);
 #ifdef SQLCHECK
-            ASYNC_THROW_IF(memberCheck->isSuccess(), memberCheck->getErrorMessage());
-            ASYNC_THROW_IF(memberCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+            if (memberCheck->isSuccess()) {
+                transaction.rollback();
+                throw std::runtime_error(memberCheck->getErrorMessage());
+            }
+            if (!memberCheck->hasMoreToFetch()) {
+                transaction.rollback();
+                throw std::runtime_error("User does not exist or has been deactivated");
+            }
 #else
-            ASYNC_THROW_IF(memberCheck->isSuccess() && memberCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+            if (memberCheck->isSuccess() || !memberCheck->hasMoreToFetch()) {
+                transaction.rollback();
+                throw std::runtime_error("User does not exist or has been deactivated");
+            }
 #endif
             auto memberId = memberCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
             auto result = m_appClient->addGroupMember(groupId, memberId, "member");
             #ifdef SQLCHECK
-            ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+            if (result->isSuccess()) {
+                transaction.rollback();
+                throw std::runtime_error(result->getErrorMessage());
+            }
             #else
-            ASYNC_THROW_IF(result->isSuccess(), "Failed to add member");
+            if (result->isSuccess()) {
+                transaction.rollback();
+                throw std::runtime_error("Failed to add member");
+            }
             #endif
+            auto convResult = m_appClient->createGroupConversation(memberId, groupId);
+            if (!convResult->isSuccess()) {
+                transaction.rollback();
+                #ifdef SQLCHECK
+                throw std::runtime_error(convResult->getErrorMessage());
+                #else
+                throw std::runtime_error("Failed to create conversation for member");
+                #endif
+            }
         }
+
+        transaction.commit();
         return true;
     }
 
@@ -303,6 +365,7 @@ public:
         ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
         ASYNC_THROW_IF(groupUuid && !groupUuid->empty(), "Group ID cannot be empty");
         ASYNC_THROW_IF(targetUserUuid && !targetUserUuid->empty(), "Target user ID cannot be empty");
+
         auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
         #ifdef SQLCHECK
         ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
@@ -332,38 +395,12 @@ public:
 
         ASYNC_THROW_IF(currentUserId == targetUserId, "You cannot remove yourself through this interface, please use the quit group interface");
 
-        auto currentRoleResult = m_appClient->getUserRoleInGroup(groupId, currentUserId);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(currentRoleResult->isSuccess(), currentRoleResult->getErrorMessage());
-        ASYNC_THROW_IF(currentRoleResult->hasMoreToFetch(), "You are not a member of this group and do not have permission to operate");
-        #else
-        ASYNC_THROW_IF(currentRoleResult->isSuccess() && currentRoleResult->hasMoreToFetch(), "You are not a member of this group and do not have permission to operate");
-        #endif
-        auto currentRole = currentRoleResult->fetch<oatpp::Vector<oatpp::Object<UserRoleDTO>>>()[0]->role;
-
-        auto targetRoleResult = m_appClient->getUserRoleInGroup(groupId, targetUserId);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(targetRoleResult->isSuccess(), targetRoleResult->getErrorMessage());
-        ASYNC_THROW_IF(targetRoleResult->hasMoreToFetch(), "Target user is not in this group");
-        #else
-        ASYNC_THROW_IF(targetRoleResult->isSuccess() && targetRoleResult->hasMoreToFetch(), "Target user is not in this group");
-        #endif
-        auto targetRole = targetRoleResult->fetch<oatpp::Vector<oatpp::Object<UserRoleDTO>>>()[0]->role;
-
-        bool hasPermission = false;
-        if (currentRole == "owner") {
-            hasPermission = true;
-        } else if (currentRole == "admin" && targetRole == "member") {
-            hasPermission = true;
-        }
-
-        ASYNC_THROW_IF(!hasPermission, "You do not have permission to remove this member");
-
-        auto result = m_appClient->removeGroupMember(groupId, targetUserId);
+        auto result = m_appClient->removeGroupMember(groupId, targetUserId, currentUserId);
         #ifdef SQLCHECK
         ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        ASYNC_THROW_IF(result->hasMoreToFetch(), "You do not have permission to remove this member or member does not exist");
         #else
-        ASYNC_THROW_IF(result->isSuccess(), "Failed to remove member");
+        ASYNC_THROW_IF(result->isSuccess() && !result->hasMoreToFetch(), "You do not have permission to remove this member or member does not exist");
         #endif
 
         auto deleteConvResult = m_appClient->deleteConversationForGroupMember(groupId, targetUserId);
@@ -497,14 +534,21 @@ public:
         #endif
         auto groupId = groupIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
+        // 在事务中执行所有操作，避免 TOCTOU
+        auto transaction = m_appClient->beginTransaction();
 
-
-        // 获取群成员列表
+        // 在事务内重新获取群成员列表（REPEATABLE READ 快照）
         auto membersResult = m_appClient->getGroupMembers(groupId);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(membersResult->isSuccess(), membersResult->getErrorMessage());
+        if (membersResult->isSuccess()) {
+            transaction.rollback();
+            throw std::runtime_error("Failed to get group member list");
+        }
         #else
-        ASYNC_THROW_IF(membersResult->isSuccess(), "Failed to get group member list");
+        if (membersResult->isSuccess()) {
+            transaction.rollback();
+            throw std::runtime_error("Failed to get group member list");
+        }
         #endif
         auto members = membersResult->fetch<oatpp::Vector<oatpp::Object<GroupMemberVO>>>();
 
@@ -515,26 +559,37 @@ public:
         if (remainingMembers == 1) {
             auto dissolveResult = m_appClient->dissolveGroup(groupId, currentUserId);
             #ifdef SQLCHECK
-            ASYNC_THROW_IF(dissolveResult->isSuccess(), dissolveResult->getErrorMessage());
+            if (dissolveResult->isSuccess()) {
+                transaction.rollback();
+                throw std::runtime_error(dissolveResult->getErrorMessage());
+            }
             #else
-            ASYNC_THROW_IF(dissolveResult->isSuccess(), "No permission to dissolve the group");
+            if (dissolveResult->isSuccess()) {
+                transaction.rollback();
+                throw std::runtime_error("No permission to dissolve the group");
+            }
             #endif
+            transaction.commit();
             return true;
         }
+
         // 检查当前用户是否是群主
         auto currentRoleResult = m_appClient->getUserRoleInGroup(groupId, currentUserId);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(currentRoleResult->isSuccess(), currentRoleResult->getErrorMessage());
-        ASYNC_THROW_IF(currentRoleResult->hasMoreToFetch(), "You are not a member of this group and do not have permission to operate");
+        if (currentRoleResult->isSuccess() || !currentRoleResult->hasMoreToFetch()) {
+            transaction.rollback();
+            throw std::runtime_error("You are not a member of this group and do not have permission to operate");
+        }
         #else
-        ASYNC_THROW_IF(currentRoleResult->isSuccess() && currentRoleResult->hasMoreToFetch(), "You are not a member of this group and do not have permission to operate");
+        if (currentRoleResult->isSuccess() || !currentRoleResult->hasMoreToFetch()) {
+            transaction.rollback();
+            throw std::runtime_error("You are not a member of this group and do not have permission to operate");
+        }
         #endif
         auto currentRole = currentRoleResult->fetch<oatpp::Vector<oatpp::Object<UserRoleDTO>>>()[0]->role;
 
         // 如果是群主，需要选择新群主
         if (currentRole == "owner") {
-
-
             // 优先选择管理员作为新群主
             oatpp::Int64 newOwnerId = -1;
             for (const auto& member : *members) {
@@ -564,9 +619,15 @@ public:
             if (newOwnerId != -1) {
                 auto updateResult = m_appClient->setMemberRole(groupId, newOwnerId, "owner");
                 #ifdef SQLCHECK
-                ASYNC_THROW_IF(updateResult->isSuccess(), updateResult->getErrorMessage());
+                if (updateResult->isSuccess() || !updateResult->hasMoreToFetch()) {
+                    transaction.rollback();
+                    throw std::runtime_error("Failed to set new group owner - member may have left");
+                }
                 #else
-                ASYNC_THROW_IF(updateResult->isSuccess(), "Failed to set new group owner");
+                if (updateResult->isSuccess() || !updateResult->hasMoreToFetch()) {
+                    transaction.rollback();
+                    throw std::runtime_error("Failed to set new group owner - member may have left");
+                }
                 #endif
             }
         }
@@ -574,11 +635,133 @@ public:
         // 执行退出群组操作
         auto result = m_appClient->leaveGroup(groupId, currentUserId);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        if (result->isSuccess()) {
+            transaction.rollback();
+            throw std::runtime_error(result->getErrorMessage());
+        }
         #else
-        ASYNC_THROW_IF(result->isSuccess(), "Failed to leave group");
+        if (result->isSuccess()) {
+            transaction.rollback();
+            throw std::runtime_error("Failed to leave group");
+        }
         #endif
 
+        transaction.commit();
+        return true;
+    }
+
+
+    // 发送群聊请求
+    oatpp::Boolean sendGroupRequest(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid, const oatpp::Object<SendGroupRequestDTO>& request) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "用户ID不能为空");
+        ASYNC_THROW_IF(groupUuid && !groupUuid->empty(), "群组ID不能为空");
+        ASYNC_THROW_IF(request, "请求参数不能为空");
+
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+#ifdef SQLCHECK
+        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
+        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "用户不存在或已失效");
+#else
+        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "用户不存在或已失效");
+#endif
+        auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto groupCheck = m_appClient->getGroupIdByUuid(groupUuid);
+#ifdef SQLCHECK
+        ASYNC_THROW_IF(groupCheck->isSuccess(), groupCheck->getErrorMessage());
+        ASYNC_THROW_IF(groupCheck->hasMoreToFetch(), "群组不存在或已失效");
+#else
+        ASYNC_THROW_IF(groupCheck->isSuccess() && groupCheck->hasMoreToFetch(), "群组不存在或已失效");
+#endif
+        auto groupId = groupCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        // 检查是否已在群中
+        auto memberCheck = m_appClient->checkUserInGroup(groupId, userId);
+        if (memberCheck->isSuccess() && memberCheck->hasMoreToFetch()) {
+            throw std::runtime_error("您已经是该群成员");
+        }
+
+        auto result = m_appClient->sendGroupRequest(groupId, userId, request->message);
+#ifdef SQLCHECK
+        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+#else
+        ASYNC_THROW_IF(result->isSuccess(), "发送群聊请求失败");
+#endif
+
+        return true;
+    }
+
+    // 处理群聊请求（通过/拒绝）
+    oatpp::Boolean handleGroupRequest(const oatpp::String& currentUserIdHeader, const oatpp::String& requestUuid, const oatpp::Object<HandleGroupRequestDTO>& request) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "用户ID不能为空");
+        ASYNC_THROW_IF(requestUuid && !requestUuid->empty(), "请求ID不能为空");
+        ASYNC_THROW_IF(request && request->status, "处理状态不能为空");
+        ASYNC_THROW_IF(request->status == "accepted" || request->status == "rejected", "状态只能是 'accepted' 或 'rejected'");
+
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+#ifdef SQLCHECK
+        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
+        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "用户不存在或已失效");
+#else
+        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "用户不存在或已失效");
+#endif
+        auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        // 先获取请求详情
+        auto requestDetailResult = m_appClient->getGroupRequestByUuid(requestUuid);
+#ifdef SQLCHECK
+        ASYNC_THROW_IF(requestDetailResult->isSuccess(), requestDetailResult->getErrorMessage());
+        ASYNC_THROW_IF(requestDetailResult->hasMoreToFetch(), "群聊请求不存在");
+#else
+        ASYNC_THROW_IF(requestDetailResult->isSuccess() && requestDetailResult->hasMoreToFetch(), "群聊请求不存在");
+#endif
+        auto requestDetail = requestDetailResult->fetch<oatpp::Vector<oatpp::Object<GroupRequestDetailDTO>>>()[0];
+
+        auto transaction = m_appClient->beginTransaction();
+
+        // 更新请求状态
+        auto updateResult = m_appClient->handleGroupRequest(requestUuid, request->status, userId);
+        if (!updateResult->isSuccess()) {
+            transaction.rollback();
+#ifdef SQLCHECK
+            throw std::runtime_error(updateResult->getErrorMessage());
+#else
+            throw std::runtime_error("处理群聊请求失败");
+#endif
+        }
+
+        // 检查是否真的更新了行（通过 getKnownCount()）
+        if (updateResult->getKnownCount() == 0) {
+            transaction.rollback();
+            throw std::runtime_error("请求已被处理或不存在");
+        }
+
+        // 如果是批准，添加成员并创建会话
+        if (request->status == "accepted") {
+            // 添加成员到 group_members（带冲突处理）
+            auto addMemberResult = m_appClient->addGroupMemberWithConflict(requestDetail->groupId, requestDetail->requesterId, "member");
+            if (!addMemberResult->isSuccess()) {
+                transaction.rollback();
+#ifdef SQLCHECK
+                throw std::runtime_error(addMemberResult->getErrorMessage());
+#else
+                throw std::runtime_error("添加群成员失败");
+#endif
+            }
+
+            // 创建群聊会话
+            auto convResult = m_appClient->createGroupConversation(requestDetail->requesterId, requestDetail->groupId);
+            if (!convResult->isSuccess()) {
+                transaction.rollback();
+#ifdef SQLCHECK
+                throw std::runtime_error(convResult->getErrorMessage());
+#else
+                throw std::runtime_error("创建群聊会话失败");
+#endif
+            }
+        }
+
+        transaction.commit();
         return true;
     }
 };

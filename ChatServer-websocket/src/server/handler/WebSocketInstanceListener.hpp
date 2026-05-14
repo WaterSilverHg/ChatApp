@@ -23,13 +23,25 @@ public:
         std::string userUuid = (it != params->end()) ? it->second : "unknown";
         
         if (!userUuid.empty()) {
-            m_sharedResources->webSocket->registerConnection(userUuid, socket);
+            int prevCount = m_sharedResources->webSocket->registerConnection(userUuid, socket);
             auto listener = std::make_shared<LightweightAsyncWebSocketListener>(userUuid, m_sharedResources);
             socket->setListener(listener);
             listener->startHeartbeatCheck(socket);
+
+            if (prevCount == 0) {
+                try {
+                    auto statusRequest = oatpp::Object<UpdateStatusRequestDTO>::createShared();
+                    statusRequest->status = "online";
+                    m_sharedResources->statusService->updateStatus(userUuid, statusRequest);
+                    OATPP_LOGI("WebSocket", "User %s status set to online (was offline)", userUuid.c_str());
+                } catch (const std::exception& e) {
+                    OATPP_LOGE("WebSocket", "Failed to set user %s status to online: %s", userUuid.c_str(), e.what());
+                }
+            } else {
+                OATPP_LOGI("WebSocket", "User %s already online, connection count: %d", userUuid.c_str(), prevCount);
+            }
         } else {
             OATPP_LOGW("WebSocket", "No userUuid in connection parameters");
-            //socket->close(1008, "Missing user authentication");
         }
     }
     

@@ -94,9 +94,16 @@ class MessageUuidDTO : public oatpp::DTO {
 // 群消息分页请求
 class GroupMessagesPageRequestDTO : public oatpp::DTO {
     DTO_INIT(GroupMessagesPageRequestDTO, DTO)
-        DTO_FIELD(String, groupUuid, "groupuuid");
+    DTO_FIELD(String, groupUuid, "groupuuid");
     DTO_FIELD(Int32, page, "page");
     DTO_FIELD(Int32, size, "size");
+};
+
+// 好友请求用户ID对
+class FriendRequestIdsDTO : public oatpp::DTO {
+    DTO_INIT(FriendRequestIdsDTO, DTO)
+    DTO_FIELD(Int64, fromUserId, "from_user_id");
+    DTO_FIELD(Int64, toUserId, "to_user_id");
 };
 
 #include OATPP_CODEGEN_END(DTO)

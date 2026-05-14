@@ -147,15 +147,34 @@ public:
             "WHERE fr.uuid = CAST(:uuid AS uuid);",
             PARAM(oatpp::String, uuid))
 
+    // 更新好友请求状态 (with identity check and status guard)
+    // For accept/reject: current user must be to_user_id
+    // For cancel: current user must be from_user_id
+    // Always check status = 'pending'
+    QUERY(handleFriendRequest,
+        "UPDATE friend_requests "
+        "SET status = :status, updated_at = NOW() "
+        "WHERE uuid = CAST(:requestUuid AS uuid) "
+        "  AND status = 'pending' "
+        "  AND ("
+        "      (:status IN ('accepted', 'rejected') AND to_user_id = :currentUserId) "
+        "      OR (:status = 'canceled' AND from_user_id = :currentUserId)"
+        "  ) "
+        "RETURNING from_user_id, to_user_id;",
+        PARAM(oatpp::String, requestUuid),
+        PARAM(oatpp::String, status),
+        PARAM(oatpp::Int64, currentUserId))
+
+    // 取消好友请求 (deprecated, use handleFriendRequest instead)
+    QUERY(cancelFriendRequest, 
+          "DELETE FROM friend_requests WHERE uuid = CAST(:requestId AS uuid);",
+          PARAM(oatpp::String, requestId))
+
+    // 旧的更新方法 (deprecated, use handleFriendRequest instead)
     QUERY(updateFriendRequestStatus,
         "UPDATE friend_requests SET status = :status, updated_at = NOW() WHERE uuid = CAST(:uuid AS uuid);",
         PARAM(oatpp::String, uuid),
         PARAM(oatpp::String, status))
-
-    // 取消好友请求
-    QUERY(cancelFriendRequest, 
-          "DELETE FROM friend_requests WHERE uuid = CAST(:requestId AS uuid);",
-          PARAM(oatpp::String, requestId))
 
     // 创建好友关系
     QUERY(createFriendship,
@@ -363,6 +382,32 @@ QUERY(sendPrivateMessage,
         PARAM(oatpp::Int32, limit),
         PARAM(oatpp::Int32, offset))
 
+        // 处理群聊请求（通过/拒绝）
+        QUERY(handleGroupRequest,
+            "UPDATE group_requests SET status = :status, reviewer_id = :reviewerId, reviewed_at = NOW() WHERE uuid = CAST(:requestUuid AS uuid) AND status = 'pending';",
+            PARAM(oatpp::String, requestUuid),
+            PARAM(oatpp::String, status),
+            PARAM(oatpp::Int64, reviewerId))
+
+    // 获取群聊请求详情
+    QUERY(getGroupRequestByUuid,
+        "SELECT id, group_id AS groupId, requester_id AS requesterId FROM group_requests WHERE uuid = CAST(:requestUuid AS uuid);",
+        PARAM(oatpp::String, requestUuid))
+
+    // 添加群成员（带冲突处理）
+    QUERY(addGroupMemberWithConflict, 
+          "INSERT INTO group_members (group_id, user_id, role) VALUES (:groupId, :userId, :role) ON CONFLICT (group_id, user_id) DO NOTHING;",
+          PARAM(oatpp::Int64, groupId),
+          PARAM(oatpp::Int64, userId),
+          PARAM(oatpp::String, role))
+
+        // 发送群聊请求
+        QUERY(sendGroupRequest,
+            "INSERT INTO group_requests (group_id, requester_id, message) VALUES (:groupId, :requesterId, :message);",
+            PARAM(oatpp::Int64, groupId),
+            PARAM(oatpp::Int64, requesterId),
+            PARAM(oatpp::String, message))
+
     // ==================== 群组相关 ====================
     // 创建群组
     QUERY(createGroup,
@@ -467,20 +512,34 @@ QUERY(sendPrivateMessage,
                 "  END;",
                 PARAM(oatpp::Int64, groupId))
 
-    // 移除群成员
-    QUERY(removeGroupMember, 
-          "DELETE FROM group_members WHERE group_id = :groupId AND user_id = :userId;",
+    // 移除群成员 (with embedded permission check to avoid TOCTOU)
+    // Owner can remove anyone; admin can only remove members
+    QUERY(removeGroupMember,
+          "DELETE FROM group_members "
+          "WHERE group_id = :groupId AND user_id = :targetUserId "
+          "AND EXISTS ("
+          "    SELECT 1 FROM group_members AS gm "
+          "    WHERE gm.group_id = :groupId AND gm.user_id = :currentUserId "
+          "    AND ("
+          "        gm.role = 'owner' "
+          "        OR (gm.role = 'admin' AND EXISTS ("
+          "            SELECT 1 FROM group_members "
+          "            WHERE group_id = :groupId AND user_id = :targetUserId AND role = 'member'"
+          "        ))"
+          "    )"
+          ");",
           PARAM(oatpp::Int64, groupId),
-          PARAM(oatpp::Int64, userId))
+          PARAM(oatpp::Int64, targetUserId),
+          PARAM(oatpp::Int64, currentUserId))
 
     // 可选：删除成员的会话记录
     QUERY(deleteConversationForGroupMember,
         "DELETE FROM conversations WHERE user_id = :userId AND target_group_id = :groupId;",
         PARAM(oatpp::Int64, groupId),
         PARAM(oatpp::Int64, userId))
-    // 设置成员角色
+    // 设置成员角色 (RETURNING 1 to check affected rows)
     QUERY(setMemberRole, 
-          "UPDATE group_members SET role = :role WHERE group_id = :groupId AND user_id = :userId;",
+          "UPDATE group_members SET role = :role WHERE group_id = :groupId AND user_id = :userId RETURNING 1;",
           PARAM(oatpp::Int64, groupId),
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::String, role))
@@ -650,7 +709,7 @@ QUERY(sendPrivateMessage,
     // ==================== 文件相关 ====================
     // 上传文件
     QUERY(uploadFile, 
-          "INSERT INTO files (file_name, file_size, mime_type, file_path, storage_type, user_id) "
+          "INSERT INTO files (file_name, file_size, mime_type, file_path, file_type, user_id) "
            "VALUES(:fileName, :fileSize, :mimeType, :fileUrl, :fileType, :userId) RETURNING id, file_name AS fileName, file_size AS fileSize, mime_type AS mimeType, file_path AS fileUrl, user_id AS userId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt; ",
           PARAM(oatpp::String, fileName),
           PARAM(oatpp::Int64, fileSize),
@@ -661,7 +720,7 @@ QUERY(sendPrivateMessage,
 
     // 获取文件列表
     QUERY(getFileList, 
-          "SELECT id, file_name AS fileName, storage_type AS fileType, file_size AS fileSize, file_path AS fileUrl, user_id AS uploaderId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+          "SELECT id, file_name AS fileName, file_type AS fileType, file_size AS fileSize, file_path AS fileUrl, user_id AS uploaderId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
         "FROM files "
         "WHERE user_id = :userId "
         " ORDER BY created_at DESC;",
@@ -669,7 +728,7 @@ QUERY(sendPrivateMessage,
 
     // 获取文件详情
     QUERY(getFileDetail, 
-          "SELECT id, file_name AS fileName, storage_type AS fileType, file_size AS fileSize, file_path AS fileUrl, user_id AS uploaderId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+          "SELECT id, file_name AS fileName, file_type AS fileType, file_size AS fileSize, file_path AS fileUrl, user_id AS uploaderId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
         "FROM files "
            "WHERE id = :id;",
           PARAM(oatpp::Int64, id))
@@ -682,7 +741,7 @@ QUERY(sendPrivateMessage,
 
     // 搜索文件
     QUERY(searchFiles, 
-          "SELECT id, file_name AS fileName, storage_type AS fileType, file_size AS fileSize, file_path AS fileUrl, user_id AS uploaderId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+          "SELECT id, file_name AS fileName, file_type AS fileType, file_size AS fileSize, file_path AS fileUrl, user_id AS uploaderId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
         " FROM files "
         "  WHERE user_id = :userId AND file_name LIKE :keyword "
           " ORDER BY created_at DESC;",

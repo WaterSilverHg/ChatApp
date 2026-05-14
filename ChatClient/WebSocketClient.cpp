@@ -85,6 +85,12 @@ void WebSocketClient::onConnected()
 void WebSocketClient::onDisconnected()
 {
     qDebug() << "WebSocket disconnected";
+    qDebug() << "Close code:" << m_webSocket->closeCode();
+    qDebug() << "Close reason:" << m_webSocket->closeReason();
+
+    if (m_webSocket->closeCode() == 1001 || m_webSocket->closeReason().contains("kick")) {
+        emit kickedByServer();
+    }
     emit disconnected();
 }
 
@@ -124,20 +130,21 @@ void WebSocketClient::initResponseHandlers()
         emit friendRequestSent(result);
     };
 
-    m_responseHandlers["accept_friend_request_response"] = [this](const QJsonObject& obj) {
-        emit friendRequestAccepted(obj["success"].toBool());
-    };
-
-    m_responseHandlers["reject_friend_request_response"] = [this](const QJsonObject& obj) {
-        emit friendRequestRejected(obj["success"].toBool());
-    };
-
-    m_responseHandlers["cancel_friend_request_response"] = [this](const QJsonObject& obj) {
-        emit friendRequestCancelled(obj["success"].toBool());
+    m_responseHandlers["handle_friend_request_response"] = [this](const QJsonObject& obj) {
+        emit friendRequestHandled(obj["success"].toBool());
     };
 
     m_responseHandlers["delete_friend_response"] = [this](const QJsonObject& obj) {
         emit friendDeleted(obj["success"].toBool());
+    };
+
+    m_responseHandlers["send_group_request_response"] = [this](const QJsonObject& obj) {
+        QJsonObject result = QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object();
+        emit groupRequestSent(result);
+    };
+
+    m_responseHandlers["handle_group_request_response"] = [this](const QJsonObject& obj) {
+        emit groupRequestHandled(obj["success"].toBool());
     };
 
     m_responseHandlers["create_group_response"] = [this](const QJsonObject& obj) {
@@ -206,25 +213,12 @@ void WebSocketClient::sendFriendRequest(const QString& toUserUuid, const QString
     sendMessage("send_friend_request", data);
 }
 
-void WebSocketClient::acceptFriendRequest(const QString& requuid)
+void WebSocketClient::handleFriendRequest(const QString& reqUuid, const QString& status)
 {
     QJsonObject data;
-    data["requuid"] = requuid;
-    sendMessage("accept_friend_request", data);
-}
-
-void WebSocketClient::rejectFriendRequest(const QString& requuid)
-{
-    QJsonObject data;
-    data["requuid"] = requuid;
-    sendMessage("reject_friend_request", data);
-}
-
-void WebSocketClient::cancelFriendRequest(const QString& requuid)
-{
-    QJsonObject data;
-    data["requuid"] = requuid;
-    sendMessage("cancel_friend_request", data);
+    data["reqUuid"] = reqUuid;
+    data["status"] = status;
+    sendMessage("handle_friend_request", data);
 }
 
 void WebSocketClient::deleteFriend(const QString& frienduuid)
@@ -232,6 +226,22 @@ void WebSocketClient::deleteFriend(const QString& frienduuid)
     QJsonObject data;
     data["frienduuid"] = frienduuid;
     sendMessage("delete_friend", data);
+}
+
+void WebSocketClient::sendGroupRequest(const QString& groupUuid, const QString& message)
+{
+    QJsonObject data;
+    data["groupuuid"] = groupUuid;
+    if (!message.isEmpty()) data["message"] = message;
+    sendMessage("send_group_request", data);
+}
+
+void WebSocketClient::handleGroupRequest(const QString& grUuid, const QString& status)
+{
+    QJsonObject data;
+    data["grUuid"] = grUuid;
+    data["status"] = status;
+    sendMessage("handle_group_request", data);
 }
 
 void WebSocketClient::createGroup(const QString& name, const QString& description,

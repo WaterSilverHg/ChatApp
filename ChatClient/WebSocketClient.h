@@ -19,10 +19,11 @@ public:
     bool isConnected() const;
 
     void sendFriendRequest(const QString& toUserUuid, const QString& message = "");
-    void acceptFriendRequest(const QString& requuid);
-    void rejectFriendRequest(const QString& requuid);
-    void cancelFriendRequest(const QString& requuid);
+    void handleFriendRequest(const QString& reqUuid, const QString& status);
     void deleteFriend(const QString& frienduuid);
+
+    void sendGroupRequest(const QString& groupUuid, const QString& message = "");
+    void handleGroupRequest(const QString& grUuid, const QString& status);
 
     void createGroup(const QString& name, const QString& description = "",
         const QString& avatarurl = "", const QJsonArray& memberuuids = QJsonArray(),
@@ -44,13 +45,15 @@ public:
 signals:
     void connected();
     void disconnected();
+    void kickedByServer();
     void errorOccurred(const QString& errorMessage);
 
     void friendRequestSent(const QJsonObject& result);
-    void friendRequestAccepted(bool success);
-    void friendRequestRejected(bool success);
-    void friendRequestCancelled(bool success);
+    void friendRequestHandled(bool success);
     void friendDeleted(bool success);
+
+    void groupRequestSent(const QJsonObject& result);
+    void groupRequestHandled(bool success);
 
     void groupCreated(const QJsonObject& group);
     void groupUpdated(bool success);

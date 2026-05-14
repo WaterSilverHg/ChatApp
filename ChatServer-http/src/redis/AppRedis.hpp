@@ -4,7 +4,31 @@
 class AppRedis{
 	sw::redis::Redis* handle;
 public:
-	AppRedis() = default;
+	AppRedis() : handle(nullptr) {}
+	~AppRedis() {
+		if (handle != nullptr) {
+			delete handle;
+			handle = nullptr;
+		}
+	}
+
+	// 禁止拷贝构造和赋值
+	AppRedis(const AppRedis&) = delete;
+	AppRedis& operator=(const AppRedis&) = delete;
+
+	// 允许移动构造和赋值
+	AppRedis(AppRedis&& other) noexcept : handle(other.handle) {
+		other.handle = nullptr;
+	}
+	AppRedis& operator=(AppRedis&& other) noexcept {
+		if (this != &other) {
+			delete handle;
+			handle = other.handle;
+			other.handle = nullptr;
+		}
+		return *this;
+	}
+
 	bool initRedis(const char* url) {
 		try {
 			handle = new sw::redis::Redis(url);
@@ -19,39 +43,39 @@ public:
 		return handle;
 	}
 
-	// 创建令牌
-	bool createToken(const std::string& userUuid, const std::string& token, int expireSeconds = 3600) {
+	// 创建会话（存储sessionId）
+	bool createSession(const std::string& userUuid, const std::string& sessionId, int expireSeconds = 3600) {
 		try {
-			std::string key = "token:" + userUuid;
-			handle->set(key, token);
+			std::string key = "session:" + userUuid;
+			handle->set(key, sessionId);
 			handle->expire(key, std::chrono::seconds(expireSeconds));
 			return true;
 		} catch (const sw::redis::Error& e) {
-			std::cerr << "Error creating token: " << e.what() << std::endl;
+			std::cerr << "Error creating session: " << e.what() << std::endl;
 			return false;
 		}
 	}
 
-	// 验证令牌
-	bool validateToken(const std::string& userUuid, const std::string& token) {
+	// 验证会话（检查sessionId是否存在）
+	bool validateSession(const std::string& userUuid, const std::string& sessionId) {
 		try {
-			std::string key = "token:" + userUuid;
-			auto storedToken = handle->get(key);
-			return storedToken && *storedToken == token;
+			std::string key = "session:" + userUuid;
+			auto storedSessionId = handle->get(key);
+			return storedSessionId && *storedSessionId == sessionId;
 		} catch (const sw::redis::Error& e) {
-			std::cerr << "Error validating token: " << e.what() << std::endl;
+			std::cerr << "Error validating session: " << e.what() << std::endl;
 			return false;
 		}
 	}
 
-	// 删除令牌
-	bool deleteToken(const std::string& userUuid) {
+	// 删除会话
+	bool deleteSession(const std::string& userUuid) {
 		try {
-			std::string key = "token:" + userUuid;
+			std::string key = "session:" + userUuid;
 			handle->del(key);
 			return true;
 		} catch (const sw::redis::Error& e) {
-			std::cerr << "Error deleting token: " << e.what() << std::endl;
+			std::cerr << "Error deleting session: " << e.what() << std::endl;
 			return false;
 		}
 	}

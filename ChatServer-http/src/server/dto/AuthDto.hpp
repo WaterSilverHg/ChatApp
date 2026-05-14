@@ -11,6 +11,7 @@ class UserProfileWithPassDTO : public oatpp::DTO {
     DTO_FIELD(String, email, "email");
     DTO_FIELD(String, passwordHash, "passwordhash");
     DTO_FIELD(String, avatarUrl, "avatarurl");
+    DTO_FIELD(String, status, "status");
     DTO_FIELD(String, lastSeen, "lastseen");
 };
 

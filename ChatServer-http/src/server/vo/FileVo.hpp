@@ -7,15 +7,24 @@
 // 文件信息
 class FileInfoVO : public oatpp::DTO {
     DTO_INIT(FileInfoVO, DTO)
-    DTO_FIELD(Int64, id, "id");
-    DTO_FIELD(String, fileName, "fileName");
-    DTO_FIELD(String, fileType, "fileType");
-    DTO_FIELD(String, mimeType, "mimeType");
-    DTO_FIELD(Int64, fileSize, "fileSize");
-    DTO_FIELD(String, fileUrl, "fileUrl");
-    DTO_FIELD(Int64, uploaderId, "uploaderId");
-    DTO_FIELD(String, created_url, "created_url");
-    DTO_FIELD(String, uploadTime, "uploadTime");
+    DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(String, fileName, "filename");
+    DTO_FIELD(String, fileType, "filetype");
+    DTO_FIELD(String, mimeType, "mimetype");
+    DTO_FIELD(Int64, fileSize, "filesize");
+    DTO_FIELD(String, fileUrl, "fileurl");
+};
+
+class FileDetailInfoVO : public oatpp::DTO {
+    DTO_INIT(FileDetailInfoVO, DTO)
+        DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(String, fileName, "filename");
+    DTO_FIELD(String, fileType, "filetype");
+    DTO_FIELD(String, mimeType, "mimetype");
+    DTO_FIELD(Int64, fileSize, "filesize");
+    DTO_FIELD(String, fileUrl, "fileurl");
+    DTO_FIELD(String, uploaderUuid, "uploaderuuid");
+    DTO_FIELD(String, uploadtime, "uploadtime");
 };
 
 

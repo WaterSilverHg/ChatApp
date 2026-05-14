@@ -180,57 +180,57 @@ public:
     //    return true;
     //}
 
-    oatpp::Boolean markConversationRead(const oatpp::String& currentUserIdHeader, const oatpp::String& convUuid) {
-        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
-        ASYNC_THROW_IF(convUuid && !convUuid->empty(), "Conversation ID cannot be empty");
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #endif
-        auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+    //oatpp::Boolean markConversationRead(const oatpp::String& currentUserIdHeader, const oatpp::String& convUuid) {
+    //    ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+    //    ASYNC_THROW_IF(convUuid && !convUuid->empty(), "Conversation ID cannot be empty");
+    //    auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+    //    #ifdef SQLCHECK
+    //    ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
+    //    ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+    //    #else
+    //    ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
+    //    #endif
+    //    auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-        // 2. 尝试作为目标用户 ID 查询
-        auto targetUserResult = m_appClient->getUserIdByUuid(convUuid);
-        if (targetUserResult->isSuccess() && targetUserResult->hasMoreToFetch()) {
-            auto targetUserId = targetUserResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+    //    // 2. 尝试作为目标用户 ID 查询
+    //    auto targetUserResult = m_appClient->getUserIdByUuid(convUuid);
+    //    if (targetUserResult->isSuccess() && targetUserResult->hasMoreToFetch()) {
+    //        auto targetUserId = targetUserResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-            // 查询私聊会话
-            auto convResult = m_appClient->getConversationId(userId, targetUserId);
-            if (convResult->isSuccess() && convResult->hasMoreToFetch()) {
-                #ifdef SQLCHECK
-                auto result = m_appClient->markConversationRead(targetUserId, userId);
-                ASYNC_THROW_IF(result->isSuccess(), "Failed to mark as read");
-                #else
-                auto result = m_appClient->markConversationRead(targetUserId, userId);
-                ASYNC_THROW_IF(result->isSuccess(), "Failed to mark as read");
-                #endif
-                return true;
-            }
-        }
+    //        // 查询私聊会话
+    //        auto convResult = m_appClient->getConversationId(userId, targetUserId);
+    //        if (convResult->isSuccess() && convResult->hasMoreToFetch()) {
+    //            #ifdef SQLCHECK
+    //            auto result = m_appClient->markConversationRead(targetUserId, userId);
+    //            ASYNC_THROW_IF(result->isSuccess(), "Failed to mark as read");
+    //            #else
+    //            auto result = m_appClient->markConversationRead(targetUserId, userId);
+    //            ASYNC_THROW_IF(result->isSuccess(), "Failed to mark as read");
+    //            #endif
+    //            return true;
+    //        }
+    //    }
 
-        // 3. 尝试作为群组 ID 查询
-        auto groupResult = m_appClient->getGroupIdByUuid(convUuid);
-        if (groupResult->isSuccess() && groupResult->hasMoreToFetch()) {
-            auto groupId = groupResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+    //    // 3. 尝试作为群组 ID 查询
+    //    auto groupResult = m_appClient->getGroupIdByUuid(convUuid);
+    //    if (groupResult->isSuccess() && groupResult->hasMoreToFetch()) {
+    //        auto groupId = groupResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-            // 查询群聊会话
-            auto convResult = m_appClient->getConversationId(userId, groupId);
-            if (convResult->isSuccess() && convResult->hasMoreToFetch()) {
-                #ifdef SQLCHECK
-                auto result = m_appClient->markConversationRead(groupId, userId);
-                ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
-                #else
-                auto result = m_appClient->markConversationRead(groupId, userId);
-                ASYNC_THROW_IF(result->isSuccess(), "Failed to mark as read");
-                #endif
-                return true;
-            }
-        }
-        throw oatpp::web::protocol::http::HttpError(Status::CODE_400, "Failed to mark as read");
-    }
+    //        // 查询群聊会话
+    //        auto convResult = m_appClient->getConversationId(userId, groupId);
+    //        if (convResult->isSuccess() && convResult->hasMoreToFetch()) {
+    //            #ifdef SQLCHECK
+    //            auto result = m_appClient->markConversationRead(groupId, userId);
+    //            ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+    //            #else
+    //            auto result = m_appClient->markConversationRead(groupId, userId);
+    //            ASYNC_THROW_IF(result->isSuccess(), "Failed to mark as read");
+    //            #endif
+    //            return true;
+    //        }
+    //    }
+    //    throw oatpp::web::protocol::http::HttpError(Status::CODE_400, "Failed to mark as read");
+    //}
 
     //oatpp::Vector<oatpp::Object<ConversationMemberVO>> getConversationMembers(const oatpp::String& currentUserIdHeader, const oatpp::String& convUuid) {
     //    OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");

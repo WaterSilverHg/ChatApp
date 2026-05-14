@@ -1,5 +1,6 @@
 #include "ChatMainPage.h"
 #include "UserSession.h"
+#include "LoginPage.h"
 #include <QMessageBox>
 #include <QDateTime>
 #include <QDialog>
@@ -8,8 +9,24 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QListWidget>
+#include <QTabWidget>
 #include <QGroupBox>
 #include <QKeyEvent>
+#include <QFileDialog>
+#include <QFile>
+#include <QFileInfo>
+#include <QMimeDatabase>
+#include <QDebug>
+#include <QPixmap>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QCryptographicHash>
+#include <QDir>
+#include <QCoreApplication>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QScrollBar>
 
 ChatMainPage::ChatMainPage(const QString& username, const QString& token, const QJsonObject& userInfo, QWidget *parent)
     : QWidget(parent)
@@ -26,18 +43,28 @@ ChatMainPage::ChatMainPage(const QString& username, const QString& token, const 
 
     ui.chatDisplayWidget->setOpenLinks(false);
 
+    ui.conversationListWidget->setStyleSheet("QListWidget::item:selected { color: black; }");
+
     m_httpClient->setServerUrl(HTTP_BASE_URL);
     m_httpClient->setAuthToken(token);
     m_wsClient->setWsUrl(WEBSOCKET_URL);
 
     connect(m_httpClient, &HttpApiClient::conversationsReceived, this, &ChatMainPage::onConversationsReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::privateMessagesReceived, this, &ChatMainPage::onPrivateMessagesReceived, Qt::UniqueConnection);
+    connect(m_httpClient, &HttpApiClient::privateMessagesBeforeReceived, this, &ChatMainPage::onPrivateMessagesBeforeReceived, Qt::UniqueConnection);
+    connect(m_httpClient, &HttpApiClient::privateMessagesPageReceived, this, &ChatMainPage::onPrivateMessagesPageReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::groupMessagesReceived, this, &ChatMainPage::onGroupMessagesReceived, Qt::UniqueConnection);
+    connect(m_httpClient, &HttpApiClient::groupMessagesBeforeReceived, this, &ChatMainPage::onGroupMessagesBeforeReceived, Qt::UniqueConnection);
+    connect(m_httpClient, &HttpApiClient::groupMessagesPageReceived, this, &ChatMainPage::onGroupMessagesPageReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::errorOccurred, this, &ChatMainPage::onError, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::receivedRequestsReceived, this, &ChatMainPage::onReceivedRequestsReceived, Qt::UniqueConnection);
+    connect(m_httpClient, &HttpApiClient::receivedGroupRequestsReceived, this, &ChatMainPage::onReceivedGroupRequestsReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::userDetailReceived, this, &ChatMainPage::onUserDetailReceived, Qt::UniqueConnection);
+    connect(m_httpClient, &HttpApiClient::groupDetailReceived, this, &ChatMainPage::onGroupDetailReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::usersSearched, this, &ChatMainPage::onUsersSearched, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::groupsSearched, this, &ChatMainPage::onGroupsSearched, Qt::UniqueConnection);
+    connect(m_httpClient, &HttpApiClient::fileUploaded, this, &ChatMainPage::onFileUploaded, Qt::UniqueConnection);
+    connect(ui.chatDisplayWidget->verticalScrollBar(), &QScrollBar::rangeChanged, this, &ChatMainPage::onChatScrollRangeChanged);
     connect(ui.chatDisplayWidget, &QTextBrowser::anchorClicked, this, [](const QUrl& url) {
         if (url.scheme() == "user") {
             QString userUuid = url.authority();
@@ -50,14 +77,29 @@ ChatMainPage::ChatMainPage(const QString& username, const QString& token, const 
     connect(m_wsClient, &WebSocketClient::groupMessageSent, this, &ChatMainPage::onGroupMessageSent, Qt::UniqueConnection);
     connect(m_wsClient, &WebSocketClient::newPrivateMessageReceived, this, &ChatMainPage::onNewPrivateMessageReceived, Qt::UniqueConnection);
     connect(m_wsClient, &WebSocketClient::newGroupMessageReceived, this, &ChatMainPage::onNewGroupMessageReceived, Qt::UniqueConnection);
-    connect(m_wsClient, &WebSocketClient::friendRequestAccepted, this, [this](bool success) {
-        if (!success) QMessageBox::warning(this, "失败", "同意好友请求失败");
-    });
-    connect(m_wsClient, &WebSocketClient::friendRequestRejected, this, [this](bool success) {
-        if (!success) QMessageBox::warning(this, "失败", "拒绝好友请求失败");
+    connect(m_wsClient, &WebSocketClient::friendRequestHandled, this, [this](bool success) {
+        if (success) {
+            QMessageBox::information(this, "成功", "好友请求已处理");
+        } else {
+            QMessageBox::warning(this, "失败", "处理好友请求失败");
+        }
     });
     connect(m_wsClient, &WebSocketClient::friendRequestSent, this, [this](const QJsonObject&) {
         QMessageBox::information(this, "成功", "好友请求已发送");
+    });
+    connect(m_wsClient, &WebSocketClient::groupRequestHandled, this, [this](bool success) {
+        if (success) {
+            QMessageBox::information(this, "成功", "群聊请求已处理");
+        } else {
+            QMessageBox::warning(this, "失败", "处理群聊请求失败");
+        }
+    });
+    connect(m_wsClient, &WebSocketClient::kickedByServer, this, [this]() {
+        QMessageBox::warning(this, "下线通知", "您的账号已在另一个设备登录，您已被踢出。");
+        UserSession::instance()->clear();
+        LoginPage* loginPage = new LoginPage();
+        loginPage->show();
+        this->close();
     });
 
     updateUserInfo();
@@ -82,6 +124,7 @@ void ChatMainPage::onConversationsReceived(const QJsonArray& conversations)
 {
     ui.conversationListWidget->clear();
     m_conversationsList.clear();
+    m_unreadCounts.clear();
 
     for (const QJsonValue& convValue : conversations) {
         QJsonObject convObj = convValue.toObject();
@@ -90,7 +133,10 @@ void ChatMainPage::onConversationsReceived(const QJsonArray& conversations)
         QString targetName = convObj["targetname"].toString();
         QString convType = convObj["type"].toString();
         QString lastMessage = convObj["lastmessage"].toString();
+        QString convUuid = convObj["targetuuid"].toString();
         int unreadCount = convObj["unreadcount"].toInt();
+
+        m_unreadCounts.insert(convUuid, unreadCount);
 
         QString displayText = targetName;
         if (!convType.isEmpty()) {
@@ -155,10 +201,26 @@ void ChatMainPage::markConversationLoaded(const QString& convUuid)
 
 void ChatMainPage::loadConversationMessages(const QString& convUuid, const QString& convType)
 {
-    if (convType == "group") {
-        m_httpClient->getGroupMessages(convUuid);
+    if (hasLocalCache(convUuid)) {
+        QJsonArray cachedMessages = loadMessagesFromCache(convUuid);
+        m_messagesCache.insert(convUuid, cachedMessages);
+        displayMessages(cachedMessages, convType);
+
+        int unreadCount = m_unreadCounts.value(convUuid, 0);
+        if (unreadCount > 0) {
+            int fetchSize = qMin(MESSAGE_PAGE_SIZE, unreadCount);
+            if (convType == "group") {
+                m_httpClient->getGroupMessagesPage(convUuid, 1, fetchSize);
+            } else {
+                m_httpClient->getPrivateMessagesPage(convUuid, 1, fetchSize);
+            }
+        }
     } else {
-        m_httpClient->getPrivateMessages(convUuid);
+        if (convType == "group") {
+            m_httpClient->getGroupMessagesPage(convUuid, 1, MESSAGE_PAGE_SIZE);
+        } else {
+            m_httpClient->getPrivateMessagesPage(convUuid, 1, MESSAGE_PAGE_SIZE);
+        }
     }
 }
 
@@ -269,23 +331,41 @@ void ChatMainPage::showSearchDialog()
 
 void ChatMainPage::on_profileButton_clicked()
 {
-    QString info = QString("个人资料\n\n用户名: %1\n邮箱: %2\nUUID: %3\n状态: %4")
-        .arg(m_currentUser)
-        .arg(m_userInfo["email"].toString())
-        .arg(m_userInfo["useruuid"].toString())
-        .arg(m_userInfo["status"].toString().isEmpty() ? "offline" : m_userInfo["status"].toString());
+    QString selfUuid = m_userInfo["useruuid"].toString();
+    m_httpClient->getUserInfo(selfUuid);
+}
 
-    QMessageBox::information(this, "个人资料", info);
+void ChatMainPage::onFileUploaded(const QJsonObject& fileInfo)
+{
+    QString fileUrl = fileInfo["fileurl"].toString();
+    QString fileUuid = fileInfo["uuid"].toString();
+
+    if (!fileUrl.isEmpty()) {
+        m_userInfo["avatarurl"] = fileUrl;
+        UserSession::instance()->setAvatarUrl(fileUrl);
+        QMessageBox::information(this, "成功", QString("头像上传成功!\n文件UUID: %1").arg(fileUuid));
+    } else {
+        QMessageBox::warning(this, "错误", "头像上传失败");
+    }
 }
 
 void ChatMainPage::on_friendRequestsButton_clicked()
 {
+    m_pendingFriendRequests.reset(new QJsonArray());
+    m_pendingGroupRequests.reset(new QJsonArray());
     m_httpClient->getReceivedRequests();
+    m_httpClient->getReceivedGroupRequests();
+    showRequestsDialog();
 }
 
 void ChatMainPage::onReceivedRequestsReceived(const QJsonArray& requests)
 {
-    showFriendRequestsDialog(requests);
+    m_pendingFriendRequests.reset(new QJsonArray(requests));
+}
+
+void ChatMainPage::onReceivedGroupRequestsReceived(const QJsonArray& requests)
+{
+    m_pendingGroupRequests.reset(new QJsonArray(requests));
 }
 
 void ChatMainPage::showFriendRequestsDialog(const QJsonArray& requests)
@@ -311,12 +391,14 @@ void ChatMainPage::showFriendRequestsDialog(const QJsonArray& requests)
 
     for (const QJsonValue& reqValue : requests) {
         QJsonObject req = reqValue.toObject();
-        QString fromUserUuid = req["fromuseruuid"].toString();
         QString requestUuid = req["uuid"].toString();
         QString message = req["message"].toString();
         QString createdAt = req["createdat"].toString();
+        QJsonObject requester = req["requester"].toObject();
+        QString fromUserUuid = requester["uuid"].toString();
+        QString fromUserName = requester["username"].toString();
 
-        QString displayText = QString("请求来自: %1").arg(fromUserUuid);
+        QString displayText = QString("请求来自: %1").arg(fromUserName.isEmpty() ? fromUserUuid : fromUserName);
         if (!message.isEmpty()) {
             displayText += QString(" - %1").arg(message);
         }
@@ -337,13 +419,13 @@ void ChatMainPage::showFriendRequestsDialog(const QJsonArray& requests)
         rejectBtn->setStyleSheet("background-color: #f44336; color: white; border: none; padding: 4px 12px; border-radius: 4px;");
 
         connect(acceptBtn, &QPushButton::clicked, [this, requestUuid, dialog]() {
-            m_wsClient->acceptFriendRequest(requestUuid);
+            m_wsClient->handleFriendRequest(requestUuid, "accepted");
             dialog->close();
             QMessageBox::information(this, "成功", "好友请求已同意");
         });
 
         connect(rejectBtn, &QPushButton::clicked, [this, requestUuid, dialog]() {
-            m_wsClient->rejectFriendRequest(requestUuid);
+            m_wsClient->handleFriendRequest(requestUuid, "rejected");
             dialog->close();
             QMessageBox::information(this, "成功", "好友请求已拒绝");
         });
@@ -355,6 +437,246 @@ void ChatMainPage::showFriendRequestsDialog(const QJsonArray& requests)
     }
 
     dialog->exec();
+}
+
+void ChatMainPage::showGroupRequestsDialog(const QJsonArray& requests)
+{
+    QDialog* dialog = new QDialog(this);
+    dialog->setWindowTitle("群聊请求");
+    dialog->setFixedSize(450, 350);
+
+    QVBoxLayout* layout = new QVBoxLayout(dialog);
+
+    if (requests.isEmpty()) {
+        QLabel* emptyLabel = new QLabel("暂无群聊请求", dialog);
+        emptyLabel->setAlignment(Qt::AlignCenter);
+        layout->addWidget(emptyLabel);
+        dialog->exec();
+        return;
+    }
+
+    QGroupBox* groupBox = new QGroupBox("待处理入群请求", dialog);
+    layout->addWidget(groupBox);
+
+    QVBoxLayout* groupLayout = new QVBoxLayout(groupBox);
+
+    for (const QJsonValue& reqValue : requests) {
+        QJsonObject req = reqValue.toObject();
+        QString requestUuid = req["uuid"].toString();
+        QString message = req["message"].toString();
+        QString createdAt = req["createdat"].toString();
+        QString status = req["status"].toString();
+        QString groupName = req["groupname"].toString();
+        QString groupUuid = req["groupuuid"].toString();
+        QJsonObject requester = req["requester"].toObject();
+        QString requesterName = requester["username"].toString();
+        QString requesterUuid = requester["uuid"].toString();
+
+        QString displayText = QString("群聊: %1 - 请求者: %2").arg(groupName.isEmpty() ? groupUuid : groupName, 
+                                                                     requesterName.isEmpty() ? requesterUuid : requesterName);
+        if (!message.isEmpty()) {
+            displayText += QString(" - %1").arg(message);
+        }
+        if (!createdAt.isEmpty()) {
+            displayText += QString(" (%1)").arg(createdAt);
+        }
+        if (!status.isEmpty()) {
+            displayText += QString(" [状态: %1]").arg(status);
+        }
+
+        QWidget* reqWidget = new QWidget(groupBox);
+        QHBoxLayout* reqLayout = new QHBoxLayout(reqWidget);
+
+        QLabel* nameLabel = new QLabel(displayText, reqWidget);
+        reqLayout->addWidget(nameLabel);
+
+        QPushButton* acceptBtn = new QPushButton("同意", reqWidget);
+        QPushButton* rejectBtn = new QPushButton("拒绝", reqWidget);
+
+        acceptBtn->setStyleSheet("background-color: #4CAF50; color: white; border: none; padding: 4px 12px; border-radius: 4px;");
+        rejectBtn->setStyleSheet("background-color: #f44336; color: white; border: none; padding: 4px 12px; border-radius: 4px;");
+
+        connect(acceptBtn, &QPushButton::clicked, [this, requestUuid, dialog]() {
+            m_wsClient->handleGroupRequest(requestUuid, "accept");
+            dialog->close();
+            QMessageBox::information(this, "成功", "入群请求已同意");
+        });
+
+        connect(rejectBtn, &QPushButton::clicked, [this, requestUuid, dialog]() {
+            m_wsClient->handleGroupRequest(requestUuid, "rejected");
+            dialog->close();
+            QMessageBox::information(this, "成功", "入群请求已拒绝");
+        });
+
+        reqLayout->addWidget(acceptBtn);
+        reqLayout->addWidget(rejectBtn);
+
+        groupLayout->addWidget(reqWidget);
+    }
+
+    dialog->exec();
+}
+
+void ChatMainPage::showRequestsDialog()
+{
+    if (m_requestsDialog) {
+        return;
+    }
+
+    m_requestsDialog = new QDialog(this);
+    m_requestsDialog->setWindowTitle("请求列表");
+    m_requestsDialog->setFixedSize(500, 400);
+
+    QVBoxLayout* mainLayout = new QVBoxLayout(m_requestsDialog);
+
+    QTabWidget* tabWidget = new QTabWidget(m_requestsDialog);
+
+    QWidget* friendTab = new QWidget(tabWidget);
+    QVBoxLayout* friendLayout = new QVBoxLayout(friendTab);
+
+    QListWidget* friendListWidget = new QListWidget(friendTab);
+    friendLayout->addWidget(friendListWidget);
+
+    for (const QJsonValue& reqValue : *m_pendingFriendRequests) {
+        QJsonObject req = reqValue.toObject();
+        QString requestUuid = req["uuid"].toString();
+        QString message = req["message"].toString();
+        QString createdAt = req["createdat"].toString();
+        QJsonObject requester = req["requester"].toObject();
+        QString fromUserUuid = requester["uuid"].toString();
+        QString fromUserName = requester["username"].toString();
+
+        QString displayText = QString("请求来自: %1").arg(fromUserName.isEmpty() ? fromUserUuid : fromUserName);
+        if (!message.isEmpty()) {
+            displayText += QString(" - %1").arg(message);
+        }
+        if (!createdAt.isEmpty()) {
+            displayText += QString(" (%1)").arg(createdAt);
+        }
+
+        QListWidgetItem* item = new QListWidgetItem(displayText, friendListWidget);
+        item->setData(Qt::UserRole, requestUuid);
+
+        QWidget* itemWidget = new QWidget();
+        QHBoxLayout* itemLayout = new QHBoxLayout(itemWidget);
+
+        QLabel* nameLabel = new QLabel(displayText, itemWidget);
+        itemLayout->addWidget(nameLabel);
+
+        QPushButton* acceptBtn = new QPushButton("同意", itemWidget);
+        QPushButton* rejectBtn = new QPushButton("拒绝", itemWidget);
+
+        acceptBtn->setStyleSheet("background-color: #4CAF50; color: white; border: none; padding: 4px 12px; border-radius: 4px;");
+        rejectBtn->setStyleSheet("background-color: #f44336; color: white; border: none; padding: 4px 12px; border-radius: 4px;");
+
+        connect(acceptBtn, &QPushButton::clicked, [this, requestUuid, friendListWidget]() {
+            m_wsClient->handleFriendRequest(requestUuid, "accepted");
+            QMessageBox::information(this, "成功", "好友请求已同意");
+            friendListWidget->takeItem(friendListWidget->currentRow());
+        });
+
+        connect(rejectBtn, &QPushButton::clicked, [this, requestUuid, friendListWidget]() {
+            m_wsClient->handleFriendRequest(requestUuid, "rejected");
+            QMessageBox::information(this, "成功", "好友请求已拒绝");
+            friendListWidget->takeItem(friendListWidget->currentRow());
+        });
+
+        itemLayout->addWidget(acceptBtn);
+        itemLayout->addWidget(rejectBtn);
+        itemWidget->setLayout(itemLayout);
+
+        item->setSizeHint(itemWidget->sizeHint());
+        friendListWidget->setItemWidget(item, itemWidget);
+    }
+
+    if (!m_pendingFriendRequests || m_pendingFriendRequests->isEmpty()) {
+        QLabel* emptyLabel = new QLabel("暂无好友请求", friendTab);
+        emptyLabel->setAlignment(Qt::AlignCenter);
+        friendLayout->addWidget(emptyLabel);
+    }
+
+    tabWidget->addTab(friendTab, "好友请求");
+
+    QWidget* groupTab = new QWidget(tabWidget);
+    QVBoxLayout* groupLayout = new QVBoxLayout(groupTab);
+
+    QListWidget* groupListWidget = new QListWidget(groupTab);
+    groupLayout->addWidget(groupListWidget);
+
+    for (const QJsonValue& reqValue : *m_pendingGroupRequests) {
+        QJsonObject req = reqValue.toObject();
+        QString requestUuid = req["uuid"].toString();
+        QString message = req["message"].toString();
+        QString createdAt = req["createdat"].toString();
+        QString status = req["status"].toString();
+        QString groupName = req["groupname"].toString();
+        QString groupUuid = req["groupuuid"].toString();
+        QJsonObject requester = req["requester"].toObject();
+        QString requesterName = requester["username"].toString();
+        QString requesterUuid = requester["uuid"].toString();
+
+        QString displayText = QString("群聊: %1 - 请求者: %2").arg(groupName.isEmpty() ? groupUuid : groupName, 
+                                                                     requesterName.isEmpty() ? requesterUuid : requesterName);
+        if (!message.isEmpty()) {
+            displayText += QString(" - %1").arg(message);
+        }
+        if (!createdAt.isEmpty()) {
+            displayText += QString(" (%1)").arg(createdAt);
+        }
+        if (!status.isEmpty()) {
+            displayText += QString(" [状态: %1]").arg(status);
+        }
+
+        QListWidgetItem* item = new QListWidgetItem(displayText, groupListWidget);
+        item->setData(Qt::UserRole, requestUuid);
+
+        QWidget* itemWidget = new QWidget();
+        QHBoxLayout* itemLayout = new QHBoxLayout(itemWidget);
+
+        QLabel* nameLabel = new QLabel(displayText, itemWidget);
+        itemLayout->addWidget(nameLabel);
+
+        QPushButton* acceptBtn = new QPushButton("同意", itemWidget);
+        QPushButton* rejectBtn = new QPushButton("拒绝", itemWidget);
+
+        acceptBtn->setStyleSheet("background-color: #4CAF50; color: white; border: none; padding: 4px 12px; border-radius: 4px;");
+        rejectBtn->setStyleSheet("background-color: #f44336; color: white; border: none; padding: 4px 12px; border-radius: 4px;");
+
+        connect(acceptBtn, &QPushButton::clicked, [this, requestUuid, groupListWidget]() {
+            m_wsClient->handleGroupRequest(requestUuid, "accept");
+            QMessageBox::information(this, "成功", "入群请求已同意");
+            groupListWidget->takeItem(groupListWidget->currentRow());
+        });
+
+        connect(rejectBtn, &QPushButton::clicked, [this, requestUuid, groupListWidget]() {
+            m_wsClient->handleGroupRequest(requestUuid, "rejected");
+            QMessageBox::information(this, "成功", "入群请求已拒绝");
+            groupListWidget->takeItem(groupListWidget->currentRow());
+        });
+
+        itemLayout->addWidget(acceptBtn);
+        itemLayout->addWidget(rejectBtn);
+        itemWidget->setLayout(itemLayout);
+
+        item->setSizeHint(itemWidget->sizeHint());
+        groupListWidget->setItemWidget(item, itemWidget);
+    }
+
+    if (!m_pendingGroupRequests || m_pendingGroupRequests->isEmpty()) {
+        QLabel* emptyLabel = new QLabel("暂无群聊请求", groupTab);
+        emptyLabel->setAlignment(Qt::AlignCenter);
+        groupLayout->addWidget(emptyLabel);
+    }
+
+    tabWidget->addTab(groupTab, "群聊请求");
+
+    mainLayout->addWidget(tabWidget);
+
+    connect(m_requestsDialog, &QDialog::finished, this, [this]() {
+        m_requestsDialog = nullptr;
+    });
+
+    m_requestsDialog->exec();
 }
 
 void ChatMainPage::on_settingsButton_clicked()
@@ -375,11 +697,9 @@ void ChatMainPage::on_showInfoButton_clicked()
     QString targetId = convObj["targetuuid"].toString();
 
     if (convType == "group") {
-        QMessageBox::information(this, "群聊信息",
-            QString("群名称: %1\n群ID: %2").arg(targetName).arg(targetId));
+        m_httpClient->getGroupDetail(targetId);
     } else {
-        QMessageBox::information(this, "好友信息",
-            QString("好友名称: %1\n好友ID: %2").arg(targetName).arg(targetId));
+        m_httpClient->getUserInfo(targetId);
     }
 }
 
@@ -417,10 +737,11 @@ void ChatMainPage::onPrivateMessageSent(const QJsonObject& message)
     QString fromUserUuid = message["fromuseruuid"].toString();
     appendMessage(username, fromUserUuid, content, true, createdAt);
 
-    if (!m_currentConvUuid.isEmpty() && m_messagesCache.contains(m_currentConvUuid)) {
+    if (!m_currentConvUuid.isEmpty()) {
         QJsonArray cachedMessages = m_messagesCache.value(m_currentConvUuid);
         cachedMessages.append(message);
         m_messagesCache.insert(m_currentConvUuid, cachedMessages);
+        saveMessagesToCache(m_currentConvUuid, cachedMessages);
     }
 }
 
@@ -432,19 +753,20 @@ void ChatMainPage::onGroupMessageSent(const QJsonObject& message)
     QString fromUserUuid = message["fromuseruuid"].toString();
     appendMessage(username, fromUserUuid, content, true, createdAt);
 
-    if (!m_currentConvUuid.isEmpty() && m_messagesCache.contains(m_currentConvUuid)) {
+    if (!m_currentConvUuid.isEmpty()) {
         QJsonArray cachedMessages = m_messagesCache.value(m_currentConvUuid);
         cachedMessages.append(message);
         m_messagesCache.insert(m_currentConvUuid, cachedMessages);
+        saveMessagesToCache(m_currentConvUuid, cachedMessages);
     }
 }
 
 void ChatMainPage::onPrivateMessagesReceived(const QString& convUuid, const QJsonArray& messages)
 {
     m_messagesCache.insert(convUuid, messages);
+    saveMessagesToCache(convUuid, messages);
     markConversationLoaded(convUuid);
     
-    // 只有当这个响应是当前会话的消息时才显示
     if (convUuid == m_currentConvUuid) {
         displayMessages(messages, "private");
     }
@@ -453,39 +775,194 @@ void ChatMainPage::onPrivateMessagesReceived(const QString& convUuid, const QJso
 void ChatMainPage::onGroupMessagesReceived(const QString& convUuid, const QJsonArray& messages)
 {
     m_messagesCache.insert(convUuid, messages);
+    saveMessagesToCache(convUuid, messages);
     markConversationLoaded(convUuid);
+    m_hasMoreMessages = !messages.isEmpty();
     
-    // 只有当这个响应是当前会话的消息时才显示
     if (convUuid == m_currentConvUuid) {
         displayMessages(messages, "group");
+    }
+}
+
+void ChatMainPage::onPrivateMessagesBeforeReceived(const QString& convUuid, const QJsonArray& messages)
+{
+    m_isLoadingOlderMessages = false;
+    
+    if (messages.isEmpty()) {
+        m_hasMoreMessages = false;
+        return;
+    }
+    
+    m_hasMoreMessages = true;
+    
+    if (m_messagesCache.contains(convUuid)) {
+        QJsonArray cachedMessages = m_messagesCache.value(convUuid);
+        QJsonArray combined = messages;
+        for (const QJsonValue& msg : cachedMessages) {
+            combined.append(msg);
+        }
+        m_messagesCache.insert(convUuid, combined);
+        saveMessagesToCache(convUuid, combined);
+    }
+    
+    if (convUuid == m_currentConvUuid) {
+        for (int i = 0; i < messages.size(); ++i) {
+            QJsonObject messageObj = messages[i].toObject();
+            QString username = messageObj["username"].toString();
+            QString fromUserUuid = messageObj["fromuseruuid"].toString();
+            QString content = messageObj["content"].toString();
+            QString createdAt = messageObj["createdat"].toString();
+            bool isSelf = (fromUserUuid == m_userInfo["useruuid"].toString());
+            appendMessage(username, fromUserUuid, content, isSelf, createdAt);
+        }
+    }
+}
+
+void ChatMainPage::onGroupMessagesBeforeReceived(const QString& convUuid, const QJsonArray& messages)
+{
+    m_isLoadingOlderMessages = false;
+    
+    if (messages.isEmpty()) {
+        m_hasMoreMessages = false;
+        return;
+    }
+    
+    m_hasMoreMessages = true;
+    
+    if (m_messagesCache.contains(convUuid)) {
+        QJsonArray cachedMessages = m_messagesCache.value(convUuid);
+        QJsonArray combined = messages;
+        for (const QJsonValue& msg : cachedMessages) {
+            combined.append(msg);
+        }
+        m_messagesCache.insert(convUuid, combined);
+        saveMessagesToCache(convUuid, combined);
+    }
+    
+    if (convUuid == m_currentConvUuid) {
+        for (int i = 0; i < messages.size(); ++i) {
+            QJsonObject messageObj = messages[i].toObject();
+            QString username = messageObj["username"].toString();
+            QString fromUserUuid = messageObj["fromuseruuid"].toString();
+            QString content = messageObj["content"].toString();
+            QString createdAt = messageObj["createdat"].toString();
+            bool isSelf = (fromUserUuid == m_userInfo["useruuid"].toString());
+            appendMessage(username, fromUserUuid, content, isSelf, createdAt);
+        }
+    }
+}
+
+void ChatMainPage::onPrivateMessagesPageReceived(const QString& convUuid, const QJsonArray& messages)
+{
+    if (messages.isEmpty()) {
+        m_hasMoreMessages = false;
+        return;
+    }
+    
+    m_hasMoreMessages = true;
+    m_messagesCache.insert(convUuid, messages);
+    saveMessagesToCache(convUuid, messages);
+    markConversationLoaded(convUuid);
+    
+    if (convUuid == m_currentConvUuid) {
+        displayMessages(messages, "private");
+    }
+}
+
+void ChatMainPage::onGroupMessagesPageReceived(const QString& convUuid, const QJsonArray& messages)
+{
+    if (messages.isEmpty()) {
+        m_hasMoreMessages = false;
+        return;
+    }
+    
+    m_hasMoreMessages = true;
+    m_messagesCache.insert(convUuid, messages);
+    saveMessagesToCache(convUuid, messages);
+    markConversationLoaded(convUuid);
+    
+    if (convUuid == m_currentConvUuid) {
+        displayMessages(messages, "group");
+    }
+}
+
+void ChatMainPage::onChatScrollRangeChanged(int min, int max)
+{
+    QScrollBar* scrollBar = ui.chatDisplayWidget->verticalScrollBar();
+    if (scrollBar->value() == min && min != max && !m_isLoadingOlderMessages && m_hasMoreMessages) {
+        QString convType;
+        if (m_currentConvUuid.isEmpty()) {
+            return;
+        }
+        
+        for (const QJsonObject& conv : m_conversationsList) {
+            if (conv["targetuuid"].toString() == m_currentConvUuid) {
+                convType = conv["type"].toString();
+                break;
+            }
+        }
+        
+        if (convType.isEmpty()) {
+            return;
+        }
+        
+        QJsonArray cachedMessages = m_messagesCache.value(m_currentConvUuid);
+        if (cachedMessages.isEmpty()) {
+            return;
+        }
+        
+        QJsonObject topMessage = cachedMessages.first().toObject();
+        QString topMsgUuid = topMessage["msguuid"].toString();
+        
+        if (topMsgUuid.isEmpty()) {
+            return;
+        }
+        
+        m_isLoadingOlderMessages = true;
+        
+        if (convType == "group") {
+            m_httpClient->getGroupMessagesBefore(m_currentConvUuid, topMsgUuid, MESSAGE_PAGE_SIZE);
+        } else {
+            m_httpClient->getPrivateMessagesBefore(m_currentConvUuid, topMsgUuid, MESSAGE_PAGE_SIZE);
+        }
     }
 }
 
 void ChatMainPage::onNewPrivateMessageReceived(const QJsonObject& message)
 {
     QString fromUserUuid = message["fromuseruuid"].toString();
-    QString touseruuid = message["touseruuid"].toString();
     QString currentUserUuid = m_userInfo["useruuid"].toString();
 
-    QString convUuid;
-    if (fromUserUuid == currentUserUuid) {
-        convUuid = touseruuid;
-    } else {
-        convUuid = fromUserUuid;
-    }
-
-    if (m_messagesCache.contains(convUuid)) {
-        QJsonArray cachedMessages = m_messagesCache.value(convUuid);
-        cachedMessages.append(message);
-        m_messagesCache.insert(convUuid, cachedMessages);
-    }
+    QString convUuid = fromUserUuid;
+    QString content = message["content"].toString();
 
     if (m_currentConvUuid == convUuid) {
+        if (m_messagesCache.contains(convUuid)) {
+            QJsonArray cachedMessages = m_messagesCache.value(convUuid);
+            cachedMessages.append(message);
+            m_messagesCache.insert(convUuid, cachedMessages);
+            saveMessagesToCache(convUuid, cachedMessages);
+        }
+
         QString username = message["username"].toString();
-        QString content = message["content"].toString();
         QString createdAt = message["createdat"].toString();
         appendMessage(username, fromUserUuid, content, false, createdAt);
-    } else {
+
+        markCurrentConversationAsRead();
+    }
+
+    for (int i = 0; i < m_conversationsList.size(); ++i) {
+        QJsonObject convObj = m_conversationsList.at(i);
+        if (convObj["targetuuid"].toString() == convUuid) {
+            QJsonObject updatedConv = convObj;
+            updatedConv["lastmessage"] = content;
+            m_conversationsList.replace(i, updatedConv);
+            updateConversationItemDisplay(i);
+            break;
+        }
+    }
+
+    if (m_currentConvUuid != convUuid) {
         updateConversationUnreadCount(convUuid, 1);
     }
 }
@@ -498,16 +975,32 @@ void ChatMainPage::onNewGroupMessageReceived(const QJsonObject& message)
     QString content = message["content"].toString();
     QString createdAt = message["createdat"].toString();
 
-    if (m_messagesCache.contains(groupUuid)) {
-        QJsonArray cachedMessages = m_messagesCache.value(groupUuid);
-        cachedMessages.append(message);
-        m_messagesCache.insert(groupUuid, cachedMessages);
-    }
-
     if (m_currentConvUuid == groupUuid) {
+        if (m_messagesCache.contains(groupUuid)) {
+            QJsonArray cachedMessages = m_messagesCache.value(groupUuid);
+            cachedMessages.append(message);
+            m_messagesCache.insert(groupUuid, cachedMessages);
+            saveMessagesToCache(groupUuid, cachedMessages);
+        }
+
         bool isSelf = (fromUserUuid == m_userInfo["useruuid"].toString());
         appendMessage(username, fromUserUuid, content, isSelf, createdAt);
-    } else {
+
+        markCurrentConversationAsRead();
+    }
+
+    for (int i = 0; i < m_conversationsList.size(); ++i) {
+        QJsonObject convObj = m_conversationsList.at(i);
+        if (convObj["targetuuid"].toString() == groupUuid) {
+            QJsonObject updatedConv = convObj;
+            updatedConv["lastmessage"] = content;
+            m_conversationsList.replace(i, updatedConv);
+            updateConversationItemDisplay(i);
+            break;
+        }
+    }
+
+    if (m_currentConvUuid != groupUuid) {
         updateConversationUnreadCount(groupUuid, 1);
     }
 }
@@ -525,29 +1018,30 @@ void ChatMainPage::closeEvent(QCloseEvent *event)
     msgBox.setEscapeButton(QMessageBox::Cancel);
 
     QPushButton *loginBtn = msgBox.addButton("返回登录", QMessageBox::ActionRole);
-    QPushButton *registerBtn = msgBox.addButton("返回注册", QMessageBox::ActionRole);
     QPushButton *exitBtn = msgBox.addButton("直接退出", QMessageBox::RejectRole);
 
     msgBox.exec();
 
     if (msgBox.clickedButton() == loginBtn) {
-        m_wsClient->disconnectWebSocket();
-        m_httpClient->logout();
+        if (m_wsClient) {
+            m_wsClient->disconnectWebSocket();
+        }
+        if (m_httpClient) {
+            m_httpClient->abortAllRequests();
+        }
         UserSession::instance()->clear();
+        event->accept();
         emit logoutToLogin();
-        event->accept();
-    } else if (msgBox.clickedButton() == registerBtn) {
-        m_wsClient->disconnectWebSocket();
-        m_httpClient->logout();
-        UserSession::instance()->clear();
-        emit logoutToRegister();
-        event->accept();
     } else if (msgBox.clickedButton() == exitBtn) {
-        m_wsClient->disconnectWebSocket();
-        m_httpClient->logout();
+        if (m_wsClient) {
+            m_wsClient->disconnectWebSocket();
+        }
+        if (m_httpClient) {
+            m_httpClient->abortAllRequests();
+        }
         UserSession::instance()->clear();
-        emit logoutToExit();
         event->accept();
+        emit logoutToExit();
     } else {
         event->ignore();
     }
@@ -631,20 +1125,195 @@ void ChatMainPage::onUserDetailReceived(const QJsonObject& user)
     QString avatarUrl = user["avatarurl"].toString();
     QString status = user["status"].toString();
     QString lastSeen = user["lastseen"].toString();
+    QString friendGroup = user["friendgroup"].toString();
 
-    QString info = QString("用户名: %1\n邮箱: %2\nUUID: %3\n状态: %4\n最后在线: %5")
-        .arg(username)
-        .arg(email)
-        .arg(userUuid)
-        .arg(status.isEmpty() ? "offline" : status)
-        .arg(lastSeen.isEmpty() ? "未知" : lastSeen);
+    bool isSelf = (userUuid == m_userInfo["useruuid"].toString());
 
-    QMessageBox::information(this, "用户详情", info);
+    QDialog* dialog = new QDialog(this);
+    dialog->setWindowTitle(isSelf ? "个人资料" : "用户详情");
+    dialog->setFixedSize(isSelf ? 400 : 350, isSelf ? 380 : 320);
+
+    QVBoxLayout* layout = new QVBoxLayout(dialog);
+
+    if (isSelf) {
+        QLabel* titleLabel = new QLabel("个人资料", dialog);
+        titleLabel->setStyleSheet("font-size: 18px; font-weight: bold;");
+        titleLabel->setAlignment(Qt::AlignCenter);
+        layout->addWidget(titleLabel);
+    }
+
+    QLabel* avatarLabel = new QLabel(dialog);
+    avatarLabel->setAlignment(Qt::AlignCenter);
+    QPixmap avatarPixmap = downloadAvatar(avatarUrl);
+    if (!avatarPixmap.isNull()) {
+        avatarLabel->setPixmap(avatarPixmap.scaled(100, 100, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    } else {
+        avatarLabel->setText("暂无头像");
+        avatarLabel->setStyleSheet("color: #999;");
+    }
+    layout->addWidget(avatarLabel);
+
+    QLabel* usernameLabel = new QLabel(QString("用户名: %1").arg(username), dialog);
+    layout->addWidget(usernameLabel);
+
+    if (!email.isEmpty()) {
+        QLabel* emailLabel = new QLabel(QString("邮箱: %1").arg(email), dialog);
+        layout->addWidget(emailLabel);
+    }
+
+    QLabel* uuidLabel = new QLabel(QString("UUID: %1").arg(userUuid), dialog);
+    layout->addWidget(uuidLabel);
+
+    if (!friendGroup.isEmpty()) {
+        QLabel* groupLabel = new QLabel(QString("分组: %1").arg(friendGroup), dialog);
+        layout->addWidget(groupLabel);
+    }
+
+    QLabel* statusLabel = new QLabel(QString("状态: %1").arg(status.isEmpty() ? "offline" : status), dialog);
+    layout->addWidget(statusLabel);
+
+    if (!lastSeen.isEmpty()) {
+        QLabel* lastSeenLabel = new QLabel(QString("最后在线: %1").arg(lastSeen), dialog);
+        layout->addWidget(lastSeenLabel);
+    }
+
+    if (isSelf) {
+        layout->addStretch();
+
+        QPushButton* uploadBtn = new QPushButton("上传头像", dialog);
+        uploadBtn->setStyleSheet("background-color: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 4px;");
+        layout->addWidget(uploadBtn);
+
+        connect(uploadBtn, &QPushButton::clicked, this, [this, dialog]() {
+            QString filePath = QFileDialog::getOpenFileName(this, "选择图片", "", "Images (*.png *.jpg *.jpeg *.gif *.bmp)");
+            if (filePath.isEmpty()) {
+                return;
+            }
+
+            QFile file(filePath);
+            if (!file.open(QIODevice::ReadOnly)) {
+                QMessageBox::warning(this, "错误", "无法打开文件");
+                return;
+            }
+
+            QByteArray fileData = file.readAll();
+            file.close();
+
+            QFileInfo fileInfo(filePath);
+            QString fileName = fileInfo.fileName();
+
+            QMimeDatabase mimeDb;
+            QMimeType mime = mimeDb.mimeTypeForFile(fileInfo);
+            QString mimeType = mime.name();
+
+            qint64 fileSize = fileData.size();
+
+            m_httpClient->uploadAvatarFile(fileName, mimeType, fileSize, fileData);
+            dialog->close();
+        });
+    }
+
+    QPushButton* closeBtn = new QPushButton("关闭", dialog);
+    closeBtn->setStyleSheet("background-color: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 4px;");
+    layout->addWidget(closeBtn);
+    connect(closeBtn, &QPushButton::clicked, dialog, &QDialog::close);
+
+    dialog->exec();
+}
+
+void ChatMainPage::onGroupDetailReceived(const QJsonObject& group)
+{
+    QString groupUuid = group["uuid"].toString();
+    QString groupName = group["name"].toString();
+    QString avatarUrl = group["avatarurl"].toString();
+    QString description = group["description"].toString();
+    QString memberCount = QString::number(group["membercount"].toInt());
+    QString createdAt = group["createdat"].toString();
+
+    QDialog* dialog = new QDialog(this);
+    dialog->setWindowTitle("群详情");
+    dialog->setFixedSize(450, 500);
+
+    QVBoxLayout* layout = new QVBoxLayout(dialog);
+
+    QLabel* avatarLabel = new QLabel(dialog);
+    avatarLabel->setAlignment(Qt::AlignCenter);
+    QPixmap avatarPixmap = downloadAvatar(avatarUrl);
+    if (!avatarPixmap.isNull()) {
+        avatarLabel->setPixmap(avatarPixmap.scaled(100, 100, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    } else {
+        avatarLabel->setText("暂无头像");
+        avatarLabel->setStyleSheet("color: #999;");
+    }
+    layout->addWidget(avatarLabel);
+
+    QLabel* nameLabel = new QLabel(QString("群名称: %1").arg(groupName), dialog);
+    layout->addWidget(nameLabel);
+
+    QLabel* uuidLabel = new QLabel(QString("群ID: %1").arg(groupUuid), dialog);
+    layout->addWidget(uuidLabel);
+
+    QLabel* memberCountLabel = new QLabel(QString("成员数: %1").arg(memberCount), dialog);
+    layout->addWidget(memberCountLabel);
+
+    if (!description.isEmpty()) {
+        QLabel* descLabel = new QLabel(QString("群描述: %1").arg(description), dialog);
+        layout->addWidget(descLabel);
+    }
+
+    if (!createdAt.isEmpty()) {
+        QLabel* createdAtLabel = new QLabel(QString("创建时间: %1").arg(createdAt), dialog);
+        layout->addWidget(createdAtLabel);
+    }
+
+    QLabel* memberListLabel = new QLabel("群成员:", dialog);
+    memberListLabel->setStyleSheet("font-weight: bold; margin-top: 10px;");
+    layout->addWidget(memberListLabel);
+
+    QListWidget* memberListWidget = new QListWidget(dialog);
+    memberListWidget->setFixedHeight(200);
+    memberListWidget->setStyleSheet("QListWidget::item { padding: 5px; border-bottom: 1px solid #eee; }");
+    layout->addWidget(memberListWidget);
+
+    connect(m_httpClient, &HttpApiClient::groupMembersReceived, [this, memberListWidget](const QJsonArray& members) {
+        memberListWidget->clear();
+        for (const QJsonValue& memberValue : members) {
+            QJsonObject member = memberValue.toObject();
+            QString username = member["username"].toString();
+            QString userUuid = member["useruuid"].toString();
+            
+            QListWidgetItem* item = new QListWidgetItem(username);
+            item->setData(Qt::UserRole, userUuid);
+            memberListWidget->addItem(item);
+        }
+    });
+
+    connect(memberListWidget, &QListWidget::itemClicked, [this](QListWidgetItem* item) {
+        QString userUuid = item->data(Qt::UserRole).toString();
+        m_httpClient->getUserInfo(userUuid);
+    });
+
+    QPushButton* closeBtn = new QPushButton("关闭", dialog);
+    closeBtn->setStyleSheet("background-color: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 4px;");
+    layout->addWidget(closeBtn);
+    connect(closeBtn, &QPushButton::clicked, dialog, &QDialog::close);
+
+    m_httpClient->getGroupMembers(groupUuid);
+
+    dialog->exec();
 }
 
 void ChatMainPage::onUsersSearched(const QJsonArray& users)
 {
     if (!m_searchUserResultList) return;
+
+    if (users.isEmpty()) {
+        QListWidgetItem* emptyItem = new QListWidgetItem("搜索结果为空");
+        emptyItem->setFlags(emptyItem->flags() & ~Qt::ItemIsSelectable);
+        emptyItem->setForeground(Qt::gray);
+        m_searchUserResultList->addItem(emptyItem);
+        return;
+    }
 
     for (const QJsonValue& val : users) {
         QJsonObject obj = val.toObject();
@@ -668,6 +1337,14 @@ void ChatMainPage::onUsersSearched(const QJsonArray& users)
 void ChatMainPage::onGroupsSearched(const QJsonArray& groups)
 {
     if (!m_searchGroupResultList) return;
+
+    if (groups.isEmpty()) {
+        QListWidgetItem* emptyItem = new QListWidgetItem("搜索结果为空");
+        emptyItem->setFlags(emptyItem->flags() & ~Qt::ItemIsSelectable);
+        emptyItem->setForeground(Qt::gray);
+        m_searchGroupResultList->addItem(emptyItem);
+        return;
+    }
 
     for (const QJsonValue& val : groups) {
         QJsonObject obj = val.toObject();
@@ -755,4 +1432,107 @@ void ChatMainPage::markCurrentConversationAsRead()
             break;
         }
     }
+}
+
+QPixmap ChatMainPage::downloadAvatar(const QString& avatarUrl)
+{
+    if (avatarUrl.isEmpty()) {
+        return QPixmap();
+    }
+
+    QByteArray hash = QCryptographicHash::hash(avatarUrl.toUtf8(), QCryptographicHash::Md5);
+    QString localFileName = QString(hash.toHex()) + ".png";
+
+    QString cacheDir = QCoreApplication::applicationDirPath() + "/avatar_cache";
+    QDir dir(cacheDir);
+    if (!dir.exists()) {
+        dir.mkpath(cacheDir);
+    }
+
+    QString localPath = cacheDir + "/" + localFileName;
+
+    if (QFile::exists(localPath)) {
+        QPixmap pixmap(localPath);
+        return pixmap.scaled(80, 80, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    }
+
+    QNetworkAccessManager manager;
+    QNetworkRequest request(avatarUrl);
+
+    QNetworkReply* reply = manager.get(request);
+    QEventLoop loop;
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        qDebug() << "Failed to download avatar:" << reply->errorString();
+        reply->deleteLater();
+        return QPixmap();
+    }
+
+    QByteArray data = reply->readAll();
+    reply->deleteLater();
+
+    QPixmap pixmap;
+    if (!pixmap.loadFromData(data)) {
+        qDebug() << "Failed to load avatar from data";
+        return QPixmap();
+    }
+
+    QFile file(localPath);
+    if (file.open(QIODevice::WriteOnly)) {
+        pixmap.save(&file, "PNG");
+        file.close();
+    }
+
+    return pixmap.scaled(80, 80, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+}
+
+QString ChatMainPage::getMessageCacheDir() const
+{
+    QString cacheDir = QCoreApplication::applicationDirPath() + "/message_cache";
+    QDir dir(cacheDir);
+    if (!dir.exists()) {
+        dir.mkpath(cacheDir);
+    }
+    return cacheDir;
+}
+
+QString ChatMainPage::getMessageCacheFilePath(const QString& convUuid) const
+{
+    return getMessageCacheDir() + "/" + convUuid + ".json";
+}
+
+void ChatMainPage::saveMessagesToCache(const QString& convUuid, const QJsonArray& messages)
+{
+    QString filePath = getMessageCacheFilePath(convUuid);
+    QFile file(filePath);
+    if (file.open(QIODevice::WriteOnly)) {
+        QJsonDocument doc(messages);
+        file.write(doc.toJson());
+        file.close();
+    }
+}
+
+QJsonArray ChatMainPage::loadMessagesFromCache(const QString& convUuid)
+{
+    QString filePath = getMessageCacheFilePath(convUuid);
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QJsonArray();
+    }
+    QByteArray data = file.readAll();
+    file.close();
+
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (doc.isNull() || !doc.isArray()) {
+        return QJsonArray();
+    }
+    return doc.array();
+}
+
+bool ChatMainPage::hasLocalCache(const QString& convUuid)
+{
+    QString filePath = getMessageCacheFilePath(convUuid);
+    return QFile::exists(filePath);
 }

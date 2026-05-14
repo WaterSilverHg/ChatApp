@@ -24,6 +24,7 @@
 #include "../postgresql/AppClient.hpp"
 #include "../../jwt/Appjwt.h"
 #include "../../websocket/AppWebSocket.hpp"
+#include "../../redis/AppRedis.hpp"
 
 #include"../dto/WebSocketMessageDto.hpp"
 
@@ -32,6 +33,7 @@ class SharedWebSocketResources {
 public:
     std::shared_ptr<AppClient> appClient;
     std::shared_ptr<Appjwt> jwt;
+    std::shared_ptr<AppRedis> redis;
     std::shared_ptr<AppWebSocket> webSocket;
     std::shared_ptr<oatpp::data::mapping::ObjectMapper> objectMapper;
 
@@ -46,10 +48,12 @@ public:
     SharedWebSocketResources(
         const std::shared_ptr<AppClient>& client,
         const std::shared_ptr<Appjwt>& jwtService,
+        const std::shared_ptr<AppRedis>& redisService,
         const std::shared_ptr<AppWebSocket>& ws,
         const std::shared_ptr<oatpp::data::mapping::ObjectMapper>& mapper)
         : appClient(client)
         , jwt(jwtService)
+        , redis(redisService)
         , webSocket(ws)
         , objectMapper(mapper)
         , conversationService(std::make_shared<ConversationService>(client))
@@ -136,34 +140,14 @@ private:
             sendResponse(userUuid, "send_friend_request_response", objectMapper->writeToString(result));
         };
 
-        handlers["accept_friend_request"] = [this](const oatpp::String& userUuid, const oatpp::String& msg) {
-            auto request = objectMapper->readFromString<oatpp::Object<RequestUuidDTO>>(msg);
-            if (!request || !request->reqUuid) {
-                sendError(userUuid, "Request UUID is required");
+        handlers["handle_friend_request"] = [this](const oatpp::String& userUuid, const oatpp::String& msg) {
+            auto request = objectMapper->readFromString<oatpp::Object<HandleFriendRequestDTO>>(msg);
+            if (!request || !request->reqUuid || !request->status) {
+                sendError(userUuid, "Request UUID and status are required");
                 return;
             }
-            auto result = friendService->acceptFriendRequest(userUuid, request->reqUuid);
-            sendResponse(userUuid, "accept_friend_request_response", objectMapper->writeToString(result));
-        };
-
-        handlers["reject_friend_request"] = [this](const oatpp::String& userUuid, const oatpp::String& msg) {
-            auto request = objectMapper->readFromString<oatpp::Object<RequestUuidDTO>>(msg);
-            if (!request || !request->reqUuid) {
-                sendError(userUuid, "Request UUID is required");
-                return;
-            }
-            auto result = friendService->rejectFriendRequest(request->reqUuid);
-            sendResponse(userUuid, "reject_friend_request_response", objectMapper->writeToString(result));
-        };
-
-        handlers["cancel_friend_request"] = [this](const oatpp::String& userUuid, const oatpp::String& msg) {
-            auto request = objectMapper->readFromString<oatpp::Object<RequestUuidDTO>>(msg);
-            if (!request || !request->reqUuid) {
-                sendError(userUuid, "Request UUID is required");
-                return;
-            }
-            auto result = friendService->cancelFriendRequest(request->reqUuid);
-            sendResponse(userUuid, "cancel_friend_request_response", objectMapper->writeToString(result));
+            auto result = friendService->handleFriendRequest(userUuid, request->reqUuid, request->status);
+            sendResponse(userUuid, "handle_friend_request_response", objectMapper->writeToString(result));
         };
 
 
@@ -275,16 +259,32 @@ private:
                 sendError(userUuid, "Invalid message data");
                 return;
             }
-            auto result = messageService->sendPrivateMessage(userUuid, request);
 
-            auto senderId = resolveUserId(userUuid);
-            auto receiverId = resolveUserId(request->toUserUuid);
-            auto messageId = resolveMessageId(result->uuid);
+            // 开始事务
+            auto transaction = appClient->beginTransaction();
+            oatpp::Object<PrivateMessageVO> result;
 
-            // 发送方会话：unread = 0（自己发出的消息无需未读计数）
-            appClient->upsertConversationSenderPrivate(senderId, receiverId, messageId);
-            // 接收方会话：无论在线与否，unread + 1（拉取消息时 CTE 归零）
-            appClient->incrementConversationUnreadPrivate(receiverId, senderId, messageId);
+            try {
+                result = messageService->sendPrivateMessage(userUuid, request);
+
+                auto senderId = resolveUserId(userUuid);
+                auto receiverId = resolveUserId(request->toUserUuid);
+                auto messageId = resolveMessageId(result->uuid);
+
+                // 发送方会话：unread = 0（自己发出的消息无需未读计数）
+                appClient->upsertConversationSenderPrivate(senderId, receiverId, messageId);
+                // 接收方会话：无论在线与否，unread + 1（拉取消息时 CTE 归零）
+                appClient->incrementConversationUnreadPrivate(receiverId, senderId, messageId);
+
+                // 提交事务
+                transaction.commit();
+            } catch (const std::exception& e) {
+                // 回滚事务
+                transaction.rollback();
+                OATPP_LOGE("SharedWebSocketResources", "send_private_message failed: %s", e.what());
+                sendError(userUuid, "Failed to send message: " + oatpp::String(e.what()));
+                return;
+            }
 
             // 构造转发消息
             auto forwardMsg = oatpp::Object<WebSocketResponseDTO>::createShared();
@@ -315,25 +315,37 @@ private:
                 sendError(userUuid, "Invalid message data");
                 return;
             }
-            auto result = messageService->sendGroupMessage(userUuid, request);
 
-            auto senderId = resolveUserId(userUuid);
-            auto groupId = resolveGroupId(request->groupUuid);
-            auto messageId = resolveMessageId(result->uuid);
+            // 开始事务
+            auto transaction = appClient->beginTransaction();
+            oatpp::Object<GroupMessageVO> result;
+            std::vector<oatpp::String> memberUuids;
 
-            // 发送方自身的群会话：unread = 0
-            appClient->upsertConversationSenderGroup(senderId, groupId, messageId);
+            try {
+                result = messageService->sendGroupMessage(userUuid, request);
 
-            // 获取群成员（排除发送者），每个成员的会话 unread + 1
-            auto memberUuids = getGroupMemberUuids(request->groupUuid, userUuid);
-            for (auto& uuid : memberUuids) {
-                try {
+                auto senderId = resolveUserId(userUuid);
+                auto groupId = resolveGroupId(request->groupUuid);
+                auto messageId = resolveMessageId(result->uuid);
+
+                // 发送方自身的群会话：unread = 0
+                appClient->upsertConversationSenderGroup(senderId, groupId, messageId);
+
+                // 获取群成员（排除发送者），每个成员的会话 unread + 1
+                memberUuids = getGroupMemberUuids(request->groupUuid, userUuid);
+                for (auto& uuid : memberUuids) {
                     auto memberId = resolveUserId(uuid);
                     appClient->incrementConversationUnreadGroup(memberId, groupId, messageId);
-                } catch (const std::exception& e) {
-                    OATPP_LOGE("SharedWebSocketResources", "incrementUnread failed for %s: %s",
-                        uuid->c_str(), e.what());
                 }
+
+                // 提交事务
+                transaction.commit();
+            } catch (const std::exception& e) {
+                // 回滚事务
+                transaction.rollback();
+                OATPP_LOGE("SharedWebSocketResources", "send_group_message failed: %s", e.what());
+                sendError(userUuid, "Failed to send group message: " + oatpp::String(e.what()));
+                return;
             }
 
             // 构造转发消息
@@ -347,6 +359,26 @@ private:
             webSocket->batchPushMessage(memberUuids, forwardJson);
 
             sendResponse(userUuid, "send_group_message_response", objectMapper->writeToString(result));
+        };
+
+        handlers["send_group_request"] = [this](const oatpp::String& userUuid, const oatpp::String& msg) {
+            auto request = objectMapper->readFromString<oatpp::Object<SendGroupRequestDTO>>(msg);
+            if (!request || !request->groupUuid) {
+                sendError(userUuid, "Group UUID is required");
+                return;
+            }
+            auto result = groupService->sendGroupRequest(userUuid, request->groupUuid, request);
+            sendResponse(userUuid, "send_group_request_response", objectMapper->writeToString(result));
+        };
+
+        handlers["handle_group_request"] = [this](const oatpp::String& userUuid, const oatpp::String& msg) {
+            auto request = objectMapper->readFromString<oatpp::Object<HandleGroupRequestDTO>>(msg);
+            if (!request || !request->grUuid) {
+                sendError(userUuid, "Request UUID is required");
+                return;
+            }
+            auto result = groupService->handleGroupRequest(userUuid, request->grUuid, request);
+            sendResponse(userUuid, "handle_group_request_response", objectMapper->writeToString(result));
         };
     }
 };

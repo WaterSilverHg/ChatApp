@@ -280,14 +280,28 @@ public:
         #endif
         auto groupId = groupCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
+        auto transaction = m_appClient->beginTransaction();
         for (const auto& memberId : *request->userIds) {
             auto result = m_appClient->addGroupMember(groupId, memberId, "member");
-            #ifdef SQLCHECK
-            OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
-            #else
-            OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "添加成员失败");
-            #endif
+            if (!result->isSuccess()) {
+                transaction.rollback();
+                #ifdef SQLCHECK
+                OATPP_ASSERT_HTTP(false, Status::CODE_500, result->getErrorMessage());
+                #else
+                OATPP_ASSERT_HTTP(false, Status::CODE_400, "添加成员失败");
+                #endif
+            }
+            auto convResult = m_appClient->createGroupConversation(memberId, groupId);
+            if (!convResult->isSuccess()) {
+                transaction.rollback();
+                #ifdef SQLCHECK
+                OATPP_ASSERT_HTTP(false, Status::CODE_500, convResult->getErrorMessage());
+                #else
+                OATPP_ASSERT_HTTP(false, Status::CODE_500, "添加会话失败");
+                #endif
+            }
         }
+        transaction.commit();
         return true;
     }
 
@@ -458,12 +472,26 @@ public:
         #endif
         auto groupId = groupIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
+        auto transaction = m_appClient->beginTransaction();
         auto result = m_appClient->addGroupMember(groupId, currentUserId, "member");
-        #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
-        #else
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "加入群组失败");
-        #endif
+        if (!result->isSuccess()) {
+            transaction.rollback();
+            #ifdef SQLCHECK
+            OATPP_ASSERT_HTTP(false, Status::CODE_500, result->getErrorMessage());
+            #else
+            OATPP_ASSERT_HTTP(false, Status::CODE_400, "加入群组失败");
+            #endif
+        }
+        auto convResult = m_appClient->createGroupConversation(currentUserId, groupId);
+        if (!convResult->isSuccess()) {
+            transaction.rollback();
+            #ifdef SQLCHECK
+            OATPP_ASSERT_HTTP(false, Status::CODE_500, convResult->getErrorMessage());
+            #else
+            OATPP_ASSERT_HTTP(false, Status::CODE_500, "添加会话失败");
+            #endif
+        }
+        transaction.commit();
 
         return true;
     }
@@ -590,6 +618,7 @@ public:
 
         
         auto searchKeyword = "%" + keyword + "%";
+        //OATPP_LOGD("Search", "Received keyword: %s", searchKeyword->c_str());
         auto result = m_appClient->searchGroups(searchKeyword,userId);
 #ifdef SQLCHECK
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
@@ -608,4 +637,159 @@ public:
         
         return groups;
     }
+
+    // 获取收到的群聊请求（作为管理员/群主）
+    oatpp::Vector<oatpp::Object<ReceivedGroupRequestVO>> getReceivedGroupRequests(const oatpp::String& currentUserIdHeader) {
+        OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+        
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
+        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+        #else
+        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+        #endif
+        auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto result = m_appClient->getReceivedGroupRequests(userId);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
+        #else
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取群聊请求失败");
+        #endif
+
+        auto requests = result->fetch<oatpp::Vector<oatpp::Object<GroupRequestResponseDTO>>>();
+        auto response = oatpp::Vector<oatpp::Object<ReceivedGroupRequestVO>>::createShared();
+
+        for (const auto& request : *requests) {
+            auto vo = ReceivedGroupRequestVO::createShared();
+            vo->uuid = request->uuid;
+            vo->groupUuid = request->groupUuid;
+            vo->groupName = request->groupName;
+            vo->message = request->message;
+            vo->status = request->status;
+            vo->createdAt = request->createdAt;
+
+            // 组装请求者信息
+            auto requesterInfo = UserInfoVO::createShared();
+            requesterInfo->userUuid = request->requesterUuid;
+            requesterInfo->username = request->requesterName;
+            requesterInfo->avatarUrl = request->requesterAvatar;
+            vo->requester = requesterInfo;
+
+            response->push_back(vo);
+        }
+
+        return response;
+    }
+
+    // 获取发送的群聊请求
+    oatpp::Vector<oatpp::Object<SentGroupRequestVO>> getSentGroupRequests(const oatpp::String& currentUserIdHeader) {
+        OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+        
+        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
+        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+        #else
+        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+        #endif
+        auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto result = m_appClient->getSentGroupRequests(userId);
+        #ifdef SQLCHECK
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
+        #else
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取群聊请求失败");
+        #endif
+
+        auto requests = result->fetch<oatpp::Vector<oatpp::Object<GroupRequestResponseDTO>>>();
+        auto response = oatpp::Vector<oatpp::Object<SentGroupRequestVO>>::createShared();
+
+        for (const auto& request : *requests) {
+            auto vo = SentGroupRequestVO::createShared();
+            vo->uuid = request->uuid;
+            vo->message = request->message;
+            vo->status = request->status;
+            vo->createdAt = request->createdAt;
+
+            // 组装群组信息
+            auto groupInfo = GroupInfoVO::createShared();
+            groupInfo->uuid = request->groupUuid;
+            groupInfo->name = request->groupName;
+            groupInfo->avatarUrl = request->groupAvatar;
+            vo->group = groupInfo;
+
+            response->push_back(vo);
+        }
+
+        return response;
+    }
+
+    //// 发送群聊请求
+    //oatpp::Boolean sendGroupRequest(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid, const oatpp::Object<SendGroupRequestDTO>& request) {
+    //    OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+    //    OATPP_ASSERT_HTTP(groupUuid && !groupUuid->empty(), Status::CODE_400, "群组ID不能为空");
+    //    OATPP_ASSERT_HTTP(request, Status::CODE_400, "请求参数不能为空");
+
+    //    auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+    //    #ifdef SQLCHECK
+    //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
+    //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+    //    #else
+    //    OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+    //    #endif
+    //    auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+    //    auto groupCheck = m_appClient->getGroupIdByUuid(groupUuid);
+    //    #ifdef SQLCHECK
+    //    OATPP_ASSERT_HTTP(groupCheck->isSuccess(), Status::CODE_500, groupCheck->getErrorMessage());
+    //    OATPP_ASSERT_HTTP(groupCheck->hasMoreToFetch(), Status::CODE_404, "群组不存在或已失效");
+    //    #else
+    //    OATPP_ASSERT_HTTP(groupCheck->isSuccess() && groupCheck->hasMoreToFetch(), Status::CODE_404, "群组不存在或已失效");
+    //    #endif
+    //    auto groupId = groupCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+    //    // 检查是否已在群中
+    //    auto memberCheck = m_appClient->checkUserInGroup(groupId, userId);
+    //    if (memberCheck->isSuccess() && memberCheck->hasMoreToFetch()) {
+    //        OATPP_ASSERT_HTTP(false, Status::CODE_400, "您已经是该群成员");
+    //    }
+
+    //    auto result = m_appClient->sendGroupRequest(groupId, userId, request->message);
+    //    #ifdef SQLCHECK
+    //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
+    //    //OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_400, "发送群聊请求失败");
+    //    #else
+    //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "发送群聊请求失败");
+    //    #endif
+
+    //    return true;
+    //}
+
+    //// 处理群聊请求（通过/拒绝）
+    //oatpp::Boolean handleGroupRequest(const oatpp::String& currentUserIdHeader, const oatpp::String& requestUuid, const oatpp::Object<HandleGroupRequestDTO>& request) {
+    //    OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+    //    OATPP_ASSERT_HTTP(requestUuid && !requestUuid->empty(), Status::CODE_400, "请求ID不能为空");
+    //    OATPP_ASSERT_HTTP(request && request->status, Status::CODE_400, "处理状态不能为空");
+    //    OATPP_ASSERT_HTTP(request->status == "approved" || request->status == "rejected", Status::CODE_400, "状态只能是 'approved' 或 'rejected'");
+
+    //    auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+    //    #ifdef SQLCHECK
+    //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
+    //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+    //    #else
+    //    OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
+    //    #endif
+    //    auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+    //    auto result = m_appClient->handleGroupRequest(requestUuid, request->status, userId);
+    //    #ifdef SQLCHECK
+    //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
+    //    #else
+    //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "处理群聊请求失败");
+    //    #endif
+
+    //    return true;
+    //}
 };

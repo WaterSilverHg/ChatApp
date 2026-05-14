@@ -1,12 +1,5 @@
 #pragma once
 
-
-
-
-////boost
-//#include"boost/uuid.hpp"
-////mysql connection
-//#include<mysqlx/xdevapi.h>
 //oatpp
 #include "oatpp/core/Types.hpp"
 #include "oatpp/core/macro/codegen.hpp"
@@ -26,6 +19,11 @@
 #include "oatpp-websocket/WebSocket.hpp"
 #include "oatpp/web/server/handler/AuthorizationHandler.hpp"
 #include "oatpp/web/server/interceptor/AllowCorsGlobal.hpp"
+#include"oatpp/web/mime/multipart/PartList.hpp"
+#include"oatpp/web/mime/multipart/Reader.hpp"
+//#include"oatpp/web/mime/multipart/PartReader.hpp"
+#include "oatpp/web/mime/multipart/InMemoryDataProvider.hpp"
+#include"oatpp/encoding/Url.hpp"
 //#include "oatpp/web/server/AsyncHttpConnectionHandler.hpp"
 
 //oatpp-postgresql
@@ -51,6 +49,11 @@
 //bcrypt
 #include"bcrypt/BCrypt.hpp"
 
+//腾讯云cos
+#include"Poco/JSON/Object.h"//不加报错，神了Object找不到说是
+#include "cos-cpp/cos_api.h"
+#include "cos-cpp/cos_config.h"
+
 #include<fstream>
 #include <memory>
 #include <iostream>
@@ -66,6 +69,7 @@
 
 #include"config/SettingController.h"
 
+#include"Windows.h"
 
 
 inline constexpr int EXPIRESIN = 3600 * 24 * 3;

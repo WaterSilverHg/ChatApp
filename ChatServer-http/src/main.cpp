@@ -6,6 +6,7 @@
 
 int main()
 {
+    SetConsoleOutputCP(CP_UTF8);
     oatpp::base::Environment::init();
 
     try {

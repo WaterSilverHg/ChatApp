@@ -36,13 +36,13 @@ int main(int argc, char *argv[])
             loginPage.show();
         });
         
-        QObject::connect(chatMainPage, &ChatMainPage::logoutToRegister, [&]() {
-            if (chatMainPage) {
-                chatMainPage->deleteLater();
-                chatMainPage = nullptr;
-            }
-            registerPage.show();
-        });
+//        QObject::connect(chatMainPage, &ChatMainPage::logoutToRegister, [&]() {
+//            if (chatMainPage) {
+//                chatMainPage->deleteLater();
+//                chatMainPage = nullptr;
+//            }
+//            registerPage.show();
+//        });
         
         QObject::connect(chatMainPage, &ChatMainPage::logoutToExit, [&]() {
             if (chatMainPage) {

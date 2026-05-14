@@ -39,8 +39,8 @@ std::shared_ptr<AppAuthInterceptor::OutgoingResponse> AppAuthInterceptor::interc
 
 	auto authHeader = request->getHeader(oatpp::web::protocol::http::Header::AUTHORIZATION);
 	auto authObject = std::static_pointer_cast<Appjwt::Payload>(m_authHandler.handleAuthorization(authHeader));
-	//if(authObject)
-	if (authObject->userUuid) {
+	
+	if (authObject &&authObject->userUuid) {
 		//request->putBundleData("userId", authObject->userId);
 		request->putHeader("userUuid", authObject->userUuid);
 		return nullptr; // Continue - token is valid.

@@ -44,4 +44,32 @@ class UserRoleDTO : public oatpp::DTO {
         DTO_FIELD(String, role, "role");
 };
 
+// 发送群聊请求
+class SendGroupRequestDTO : public oatpp::DTO {
+    DTO_INIT(SendGroupRequestDTO, DTO)
+    DTO_FIELD(String, message, "message");
+};
+
+// 处理群聊请求
+class HandleGroupRequestDTO : public oatpp::DTO {
+    DTO_INIT(HandleGroupRequestDTO, DTO)
+        DTO_FIELD(String, grUuid, "gruuid"); 
+    DTO_FIELD(String, status, "status"); // approved, rejected
+};
+
+// 群聊请求响应 DTO
+class GroupRequestResponseDTO : public oatpp::DTO {
+    DTO_INIT(GroupRequestResponseDTO, DTO)
+    DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(String, groupUuid, "groupuuid");
+    DTO_FIELD(String, groupName, "groupname");
+    DTO_FIELD(String, requesterUuid, "requesteruuid");
+    DTO_FIELD(String, requesterName, "requestername");
+    DTO_FIELD(String, requesterAvatar, "requesteravatar");
+    DTO_FIELD(String, groupAvatar, "groupavatar");
+    DTO_FIELD(String, message, "message");
+    DTO_FIELD(String, status, "status");
+    DTO_FIELD(String, createdAt, "createdat");
+};
+
 #include OATPP_CODEGEN_END(DTO) 
