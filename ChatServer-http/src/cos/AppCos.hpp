@@ -14,6 +14,7 @@ public:
            const std::string& bucketName) 
         : m_bucketName(bucketName), m_region(region) {
         qcloud_cos::CosConfig config(std::stoull(appId), secretId, secretKey, region);
+        //(5000);  // ¡¨Ω”≥¨ ± 5 √Î
         m_cosApi = std::make_shared<qcloud_cos::CosAPI>(config);
     }
 
@@ -36,17 +37,22 @@ public:
         std::string tmp;
         qcloud_cos::PutObjectByStreamReq req(m_bucketName, cosObjectName, is);
         req.SetContentType(contentType);
+        //std::string picOpsStr = R"({"is_pic_info": 1, "rules": [{"fileid": "path/to/converted.webp", "rule": "imageMogr2/format/webp"}]})";
+        std::string picOpsJson = R"({"is_pic_info":1,"rules":[{"fileid":")" + ("webp/" + cosObjectName + ".webp") + R"(", "rule":"imageMogr2/format/webp"}]})";
+        req.AddHeader("Pic-Operations", picOpsJson);
         qcloud_cos::PutObjectByStreamResp resp;
         auto result = m_cosApi->PutObject(req, &resp);
         if (result.IsSucc()) {
             return m_cosApi->GetObjectUrl(m_bucketName, cosObjectName, true/*, m_region*/);
         }
-        OATPP_ASSERT_HTTP(false, oatpp::web::protocol::http::Status::CODE_400, "COS stream upload failed: " + result.GetErrorMsg());
+        throw oatpp::web::protocol::http::HttpError(oatpp::web::protocol::http::Status::CODE_400, "COS stream upload failed: " + result.GetErrorMsg());
         //throw std::runtime_error("COS stream upload failed: " + result.GetErrorMsg());
     }
 
     bool downloadFile(const std::string& cosObjectName, const std::string& localFilePath) {
         qcloud_cos::GetObjectByFileReq req(m_bucketName, cosObjectName, localFilePath);
+        //req.SetSendTimeoutInms(60000);
+        req.SetRecvTimeoutInms(60000);
         qcloud_cos::GetObjectByFileResp resp;
         
         auto result = m_cosApi->GetObject(req, &resp);

@@ -14,9 +14,9 @@
 
 #include OATPP_CODEGEN_BEGIN(DbClient) 
 
-class AppClient : public oatpp::orm::DbClient {
+class AppPostgresql : public oatpp::orm::DbClient {
 public:
-    AppClient(const std::shared_ptr<oatpp::orm::Executor>& executor)
+    AppPostgresql(const std::shared_ptr<oatpp::orm::Executor>& executor)
         : oatpp::orm::DbClient(executor) {}
 
     // ==================== 用户相关 ====================
@@ -218,11 +218,39 @@ public:
           PARAM(oatpp::Int64, userId2))
 
     // 获取好友列表
-    QUERY(getFriends, 
+    QUERY(getFriends,
           "SELECT CAST(u.uuid AS VARCHAR) AS friendUuid, u.username, u.avatar_url AS avatarUrl, u.status, f.remark, f.group_name AS groupName "
         " FROM friendships f "
         "JOIN users u ON f.friend_id = u.id "
         " WHERE f.user_id = :userId AND f.status = 'accepted' AND u.deleted_at IS NULL; ",
+          PARAM(oatpp::Int64, userId))
+
+    // 获取好友详情
+    QUERY(getFriendDetail,
+          "SELECT "
+          "  CAST(u.uuid AS VARCHAR) AS userUuid, "
+          "  u.username, "
+          "  u.email, "
+          "  u.avatar_url AS avatarUrl, "
+          "  f.remark, "
+          "  f.group_name AS groupName, "
+          "  u.status, "
+          "  TO_CHAR(u.last_login, 'YYYY-MM-DD HH24:MI:SS') AS lastSeen, "
+          "  COALESCE(c.is_muted, false) AS isMuted, "
+          "  TO_CHAR(f.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+          "FROM friendships f "
+          "JOIN users u ON f.friend_id = u.id "
+          "LEFT JOIN conversations c ON c.user_id = f.user_id AND c.target_user_id = f.friend_id "
+          "WHERE f.user_id = :userId AND f.friend_id = :friendId AND f.status = 'accepted' AND u.deleted_at IS NULL;",
+          PARAM(oatpp::Int64, userId),
+          PARAM(oatpp::Int64, friendId))
+
+    // 获取拉黑用户列表
+    QUERY(getBlockedUsers,
+          "SELECT CAST(u.uuid AS VARCHAR) AS friendUuid, u.username, u.avatar_url AS avatarUrl, u.status, f.remark, f.group_name AS groupName "
+        " FROM friendships f "
+        "JOIN users u ON f.friend_id = u.id "
+        " WHERE f.user_id = :userId AND f.status = 'blocked' AND u.deleted_at IS NULL; ",
           PARAM(oatpp::Int64, userId))
 
     // 更新好友备注
@@ -238,6 +266,24 @@ public:
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::Int64, friendId),
           PARAM(oatpp::String, groupName))
+
+    // 获取好友分组列表
+    QUERY(getFriendGroupNames,
+        "SELECT DISTINCT group_name AS groupName FROM friendships WHERE user_id = :userId AND status = 'accepted' ORDER BY group_name;",
+        PARAM(oatpp::Int64, userId))
+
+    // 重命名分组
+    QUERY(renameFriendGroup,
+        "UPDATE friendships SET group_name = :newGroup WHERE user_id = :userId AND group_name = :oldGroup AND status = 'accepted';",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::String, oldGroup),
+        PARAM(oatpp::String, newGroup))
+
+    // 删除分组（成员移至默认分组）
+    QUERY(resetFriendGroupToDefault,
+        "UPDATE friendships SET group_name = '默认分组' WHERE user_id = :userId AND group_name = :groupName AND status = 'accepted';",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::String, groupName))
 
     // 删除好友
     QUERY(deleteFriend, 
@@ -593,6 +639,19 @@ QUERY(sendPrivateMessage,
           PARAM(oatpp::Int64, userId))
 
     // ==================== 群聊请求相关 ====================
+    // 检查群聊请求是否已存在
+    QUERY(checkGroupRequestExists,
+        "SELECT CAST(uuid AS VARCHAR) AS uuid, status FROM group_requests WHERE group_id = :groupId AND requester_id = :requesterId;",
+        PARAM(oatpp::Int64, groupId),
+        PARAM(oatpp::Int64, requesterId))
+
+    // 重新发送群聊请求 —— 仅当请求被拒绝/取消时才重置为 pending
+    QUERY(updateGroupRequestToPending,
+        "UPDATE group_requests SET status = 'pending', message = :message, updated_at = NOW() WHERE group_id = :groupId AND requester_id = :requesterId AND status IN ('rejected', 'canceled') RETURNING CAST(uuid AS VARCHAR) AS uuid;",
+        PARAM(oatpp::Int64, groupId),
+        PARAM(oatpp::Int64, requesterId),
+        PARAM(oatpp::String, message))
+
     // 发送群聊请求
     QUERY(sendGroupRequest,
         "INSERT INTO group_requests (group_id, requester_id, message) VALUES (:groupId, :requesterId, :message);",
@@ -779,6 +838,44 @@ QUERY(sendPrivateMessage,
         "WHERE id = :conversationId AND user_id = :userId;",
         PARAM(oatpp::Int64, conversationId),
         PARAM(oatpp::Int64, userId))
+
+    // 标记会话已读（私聊）
+    QUERY(markPrivateConversationRead,
+        "UPDATE conversations SET last_read_time = CURRENT_TIMESTAMP, unread_count = 0 "
+        "WHERE user_id = :userId AND target_user_id = :targetUserId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetUserId))
+
+    // 标记会话已读（群聊）
+    QUERY(markGroupConversationRead,
+        "UPDATE conversations SET last_read_time = CURRENT_TIMESTAMP, unread_count = 0 "
+        "WHERE user_id = :userId AND target_group_id = :targetGroupId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetGroupId))
+
+    // 消息免打扰（私聊）
+    QUERY(mutePrivateConversation,
+        "UPDATE conversations SET is_muted = true WHERE user_id = :userId AND target_user_id = :targetUserId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetUserId))
+
+    // 消息免打扰（群聊）
+    QUERY(muteGroupConversation,
+        "UPDATE conversations SET is_muted = true WHERE user_id = :userId AND target_group_id = :targetGroupId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetGroupId))
+
+    // 取消消息免打扰（私聊）
+    QUERY(unmutePrivateConversation,
+        "UPDATE conversations SET is_muted = false WHERE user_id = :userId AND target_user_id = :targetUserId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetUserId))
+
+    // 取消消息免打扰（群聊）
+    QUERY(unmuteGroupConversation,
+        "UPDATE conversations SET is_muted = false WHERE user_id = :userId AND target_group_id = :targetGroupId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetGroupId))
 
     // 根据会话uuid获取会话ID
     QUERY(getConversationIdByUuid,
@@ -980,21 +1077,24 @@ QUERY(sendPrivateMessage,
             "SELECT id FROM files WHERE uuid = CAST(:uuid AS uuid);",
             PARAM(oatpp::String, uuid))
 
-        // 搜索用户（排除已是好友的用户）
+        // 搜索用户
         QUERY(searchUsers,
-            "SELECT CAST(u.uuid AS VARCHAR) AS frienduuid, u.username, u.avatar_url AS avatarurl, u.status, "
-            "NULL AS remark, NULL AS groupname, NULL AS createdat "
+            "SELECT CAST(u.uuid AS VARCHAR) AS useruuid, u.username, u.email, "
+            "       u.avatar_url AS avatarurl, u.status, "
+            "       TO_CHAR(u.last_login, 'YYYY-MM-DD HH24:MI:SS') AS lastseen, "
+            "       COALESCE(MIN(f.status), 'none') AS friendshipstatus "
             "FROM users u "
+            "LEFT JOIN friendships f "
+            "  ON ((f.user_id = :currentUserId AND f.friend_id = u.id) "
+            "      OR (f.user_id = u.id AND f.friend_id = :currentUserId)) "
+            "     AND f.status <> 'deleted' "
             "WHERE u.deleted_at IS NULL "
             "  AND u.username LIKE :keyword "
             "  AND u.id != :currentUserId "
-            "  AND NOT EXISTS ( "
-            "      SELECT 1 FROM friendships f "
-            "      WHERE ((f.user_id = :currentUserId AND f.friend_id = u.id) "
-            "             OR (f.user_id = u.id AND f.friend_id = :currentUserId)) "
-            "        AND f.status <> 'deleted' "
-            "  ) "
-            "ORDER BY u.username LIMIT 20;",
+            "GROUP BY u.uuid, u.username, u.email, u.avatar_url, u.status, u.last_login "
+            "ORDER BY CASE COALESCE(MIN(f.status), 'none') "
+            "         WHEN 'accepted' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, "
+            "         u.username LIMIT 20;",
             PARAM(oatpp::String, keyword),
             PARAM(oatpp::Int64, currentUserId))
 

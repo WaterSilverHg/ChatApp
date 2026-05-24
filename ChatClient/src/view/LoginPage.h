@@ -1,9 +1,9 @@
 #pragma once
 
-#include "global.h"
+#include "../global.h"
 #include "ui_LoginPage.h"
-#include "HttpApiClient.h"
-#include "WebSocketClient.h"
+#include "../model/HttpApiClient.h"
+#include "../model/WebSocketClient.h"
 
 class LoginPage : public QWidget
 {

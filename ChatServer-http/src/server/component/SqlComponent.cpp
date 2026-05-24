@@ -1,6 +1,6 @@
 #pragma once
 #include"global.h"
-#include"../postgresql/AppClient.hpp"
+#include"../postgresql/AppPostgresql.hpp"
 /**
  *  Class which creates and holds Application components and registers components in oatpp::base::Environment
  *  Order of components initialization is from top to bottom
@@ -8,7 +8,7 @@
 class SqlComponent {
 public:
 
- // 1. ×¢²á ConnectionProvider
+ // 1. ×¢ï¿½ï¿½ ConnectionProvider
     OATPP_CREATE_COMPONENT(std::shared_ptr<oatpp::postgresql::ConnectionProvider>, dbConnectionProvider)([] {
         OATPP_COMPONENT(std::shared_ptr<SettingController>, config);
         return std::make_shared<oatpp::postgresql::ConnectionProvider>(
@@ -16,21 +16,21 @@ public:
         );
         }());
 
-    // 2. ×¢²á ConnectionPool
+    // 2. ×¢ï¿½ï¿½ ConnectionPool
     OATPP_CREATE_COMPONENT(std::shared_ptr<oatpp::postgresql::ConnectionPool>, dbConnectionPool)([] {
         OATPP_COMPONENT(std::shared_ptr<oatpp::postgresql::ConnectionProvider>, dbConnectionProvider);
         return oatpp::postgresql::ConnectionPool::createShared(dbConnectionProvider, 10, std::chrono::seconds(5));
         }());
 
-    // 3. ×¢²á Executor
+    // 3. ×¢ï¿½ï¿½ Executor
     OATPP_CREATE_COMPONENT(std::shared_ptr<oatpp::orm::Executor>, dbExecutor)([] {
         OATPP_COMPONENT(std::shared_ptr<oatpp::postgresql::ConnectionPool>, dbConnectionPool);
         return std::make_shared<oatpp::postgresql::Executor>(dbConnectionPool);
         }());
 
-    // 4. ×¢²á AppClient£¨ÒÀÀµ Executor£©
-    OATPP_CREATE_COMPONENT(std::shared_ptr<AppClient>, myDatabaseClient)([] {
+    // 4. Register AppPostgresql component with Executor
+    OATPP_CREATE_COMPONENT(std::shared_ptr<AppPostgresql>, myDatabaseClient)([] {
         OATPP_COMPONENT(std::shared_ptr<oatpp::orm::Executor>, dbExecutor);
-        return std::make_shared<AppClient>(dbExecutor);
+        return std::make_shared<AppPostgresql>(dbExecutor);
         }());
 };

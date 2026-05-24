@@ -20,18 +20,15 @@ class GroupInfoVO : public oatpp::DTO {
 class GroupDetailInfoVO : public oatpp::DTO {
     DTO_INIT(GroupDetailInfoVO, DTO)
 
-        DTO_FIELD(String, uuid, "uuid");                    
-    DTO_FIELD(String, name, "name");                    
-    DTO_FIELD(String, description, "description");     
-    DTO_FIELD(String, avatarUrl, "avatarurl");         
-    DTO_FIELD(Int32, memberCount, "membercount");      
-    DTO_FIELD(Int32, maxMembers, "maxmembers");        
-    DTO_FIELD(String, role, "role");               
-    DTO_FIELD(Int32, unreadCount, "unreadcount");      
-    DTO_FIELD(String, lastMessage, "lastmessage");     
-    DTO_FIELD(String, lastMessageTime, "lastmessagetime"); 
-    DTO_FIELD(Boolean, isMuted, "ismuted");          
-    DTO_FIELD(String, createdAt, "createdat");       
+        DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(String, name, "name");
+    DTO_FIELD(String, description, "description");
+    DTO_FIELD(String, avatarUrl, "avatarurl");
+    DTO_FIELD(Int32, memberCount, "membercount");
+    DTO_FIELD(Int32, maxMembers, "maxmembers");
+    DTO_FIELD(String, role, "role");
+    DTO_FIELD(Boolean, isMuted, "ismuted");
+    DTO_FIELD(String, createdAt, "createdat");
 };
 
 

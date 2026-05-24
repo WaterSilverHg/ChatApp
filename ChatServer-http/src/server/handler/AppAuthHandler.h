@@ -1,7 +1,7 @@
 #pragma once
 #include"../../global.h"
 #include "../../jwt/Appjwt.h"
-#include"../postgresql/AppClient.hpp"
+//#include"../postgresql/AppPostgresql.hpp"
 #include"../../redis/AppRedis.hpp"
 
 class AppAuthHandler : public oatpp::web::server::handler::BearerAuthorizationHandler {

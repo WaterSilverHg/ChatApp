@@ -3,41 +3,34 @@
 #include "global.h"
 #include "../dto/MessageDto.hpp"
 #include "../vo/MessageVo.hpp"
-#include "../postgresql/AppClient.hpp"
+#include "../postgresql/AppPostgresql.hpp"
 #include "../../jwt/Appjwt.h"
+#include "../../tool/UuidIdCache.hpp"
 
 class MessageService {
 private:
-    std::shared_ptr<AppClient> m_appClient;
+    std::shared_ptr<AppPostgresql> m_appClient;
+    std::shared_ptr<UuidIdCache> m_idCache;
     using Status = oatpp::web::protocol::http::Status;
 public:
-    MessageService(const std::shared_ptr<AppClient>& appClient) 
-        : m_appClient(appClient) {}
+    MessageService(const std::shared_ptr<AppPostgresql>& appClient, const std::shared_ptr<UuidIdCache>& idCache) 
+        : m_appClient(appClient), m_idCache(idCache) {}
 
     oatpp::Vector<oatpp::Object<PrivateMessageVO>> getPrivateMessages(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid) {
         ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
         ASYNC_THROW_IF(targetUserUuid && !targetUserUuid->empty(), "Target user ID cannot be empty");
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #endif
-        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto currentUserId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(currentUserId > 0, "User does not exist or has been deactivated");
 
-        auto uuidResult = m_appClient->getUserIdByUuid(targetUserUuid);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(uuidResult->isSuccess(), uuidResult->getErrorMessage());
-        ASYNC_THROW_IF(uuidResult->hasMoreToFetch(), "Target user does not exist");
-        #else
-        ASYNC_THROW_IF(uuidResult->isSuccess() && uuidResult->hasMoreToFetch(), "Target user does not exist");
-        #endif
-        auto targetUserId = uuidResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto targetUserId = m_idCache->getUserId(targetUserUuid);
+        ASYNC_THROW_IF(targetUserId > 0, "Target user does not exist");
 
         auto result = m_appClient->getPrivateMessages(currentUserId, targetUserId, 50, 0);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("MessageService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("Failed to get messages");
+        }
         #else
         ASYNC_THROW_IF(result->isSuccess(), "Failed to get messages");
         #endif
@@ -49,48 +42,35 @@ public:
         ASYNC_THROW_IF(targetUserUuid && !targetUserUuid->empty(), "Target user ID cannot be empty");
         ASYNC_THROW_IF(page > 0, "Page number must be greater than 0");
         ASYNC_THROW_IF(size > 0 && size <= 100, "Page size must be between 1 and 100");
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #endif
-        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto currentUserId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(currentUserId > 0, "User does not exist or has been deactivated");
 
-        auto uuidResult = m_appClient->getUserIdByUuid(targetUserUuid);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(uuidResult->isSuccess(), uuidResult->getErrorMessage());
-        ASYNC_THROW_IF(uuidResult->hasMoreToFetch(), "Target user does not exist");
-        #else
-        ASYNC_THROW_IF(uuidResult->isSuccess() && uuidResult->hasMoreToFetch(), "Target user does not exist");
-        #endif
-        auto targetUserId = uuidResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto targetUserId = m_idCache->getUserId(targetUserUuid);
+        ASYNC_THROW_IF(targetUserId > 0, "Target user does not exist");
 
         int offset = (page - 1) * size;
         auto result = m_appClient->getPrivateMessages(currentUserId, targetUserId, size, offset);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("MessageService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("Failed to get messages");
+        }
         #else
         ASYNC_THROW_IF(result->isSuccess(), "Failed to get messages");
         #endif
         return result->fetch<oatpp::Vector<oatpp::Object<PrivateMessageVO>>>();
     }
 
-    oatpp::Object<PrivateMessageVO> sendPrivateMessage(const oatpp::String& currentUserIdHeader, const oatpp::Object<SendPrivateMessageRequestDTO>& request) {
-        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+    oatpp::Object<PrivateMessageVO> sendPrivateMessage(const oatpp::String& currentUserUuidHeader, const oatpp::Object<SendPrivateMessageRequestDTO>& request) {
+        ASYNC_THROW_IF(currentUserUuidHeader && !currentUserUuidHeader->empty(), "User ID cannot be empty");
         ASYNC_THROW_IF(request, "Request parameters cannot be empty");
         ASYNC_THROW_IF(request->toUserUuid && !request->toUserUuid->empty(), "Target user ID cannot be empty");
         ASYNC_THROW_IF(request->messageType && !request->messageType->empty(), "Message type cannot be empty");
         ASYNC_THROW_IF(request->content && !request->content->empty(), "Message content cannot be empty");
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #endif
-        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+
+        auto currentUserId = m_idCache->getUserId(currentUserUuidHeader);
+        ASYNC_THROW_IF(currentUserId > 0, "User does not exist or has been deactivate");
 
         //auto targetUserResult = m_appClient->getGroupIdByUuid(request->toUserUuid);
         //#ifdef SQLCHECK
@@ -100,20 +80,18 @@ public:
         //#endif
         //auto userId = targetUserResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-        auto touserCheck = m_appClient->getUserIdByUuid(request->toUserUuid);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(touserCheck->isSuccess(), touserCheck->getErrorMessage());
-        ASYNC_THROW_IF(touserCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(touserCheck->isSuccess() && touserCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #endif
-        auto targetUserId = touserCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        auto targetUserId = m_idCache->getUserId(request->toUserUuid);
+        ASYNC_THROW_IF(targetUserId > 0, "Target user does not exist or has been deactivated");
 
         // 判断关系
         auto status1Result = m_appClient->checkFriendshipStatus(currentUserId, targetUserId);
         auto status2Result = m_appClient->checkFriendshipStatus(targetUserId, currentUserId);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(status1Result->isSuccess(), status1Result->getErrorMessage());
+        if (!status1Result->isSuccess()) {
+            OATPP_LOGD("MessageService", "Error: %s", status1Result->getErrorMessage());
+            throw std::runtime_error("Friendship does not exist");
+        }
         #endif
         if (!status1Result->hasMoreToFetch()) {
             throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "Friendship does not exist");
@@ -135,14 +113,20 @@ public:
 
         auto result = m_appClient->sendPrivateMessage(currentUserId, targetUserId, request->messageType, request->content, request->fileUrl, request->fileSize, request->fileName, request->mimeType);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
-        ASYNC_THROW_IF(result->hasMoreToFetch(), "Failed to send message");
+        if (!result->isSuccess()) {
+            OATPP_LOGD("MessageService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("Failed to send message");
+        }
+        if (!result->hasMoreToFetch()) {
+            OATPP_LOGD("MessageService", "Error: %s", "Failed to send message");
+            throw std::runtime_error("Failed to send message");
+        }
         #else
         ASYNC_THROW_IF(result->isSuccess() && result->hasMoreToFetch(), "Failed to send message");
         #endif
 
         auto message = result->fetch<oatpp::Vector<oatpp::Object<PrivateMessageVO>>>()[0];
-        message->fromUserUuid = currentUserIdHeader;
+        message->fromUserUuid = currentUserUuidHeader;
         message->toUserUuid = request->toUserUuid;
         message->content = request->content;
         message->messageType = request->messageType;
@@ -156,27 +140,19 @@ public:
     oatpp::Boolean recallMessage(const oatpp::String& currentUserIdHeader, const oatpp::String& messageUuid) {
         ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
         ASYNC_THROW_IF(messageUuid && !messageUuid->empty(), "Message ID cannot be empty");
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #endif
-        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        
+        auto currentUserId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(currentUserId > 0, "User does not exist or has been deactivated");
 
-        auto uuidResult = m_appClient->getMessageIdByUuid(messageUuid);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(uuidResult->isSuccess(), uuidResult->getErrorMessage());
-        ASYNC_THROW_IF(uuidResult->hasMoreToFetch(), "Message does not exist");
-        #else
-        ASYNC_THROW_IF(uuidResult->isSuccess() && uuidResult->hasMoreToFetch(), "Message does not exist");
-        #endif
-        auto messageId = uuidResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto messageId = m_idCache->getMessageId(messageUuid);
+        ASYNC_THROW_IF(messageId > 0, "Message does not exist");
 
         auto result = m_appClient->recallMessage(messageId, currentUserId);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("MessageService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("Failed to recall message");
+        }
         #else
         ASYNC_THROW_IF(result->isSuccess(), "Failed to recall message");
         #endif
@@ -186,27 +162,19 @@ public:
     oatpp::Vector<oatpp::Object<GroupMessageVO>> getGroupMessages(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid) {
         ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
         ASYNC_THROW_IF(groupUuid && !groupUuid->empty(), "Group ID cannot be empty");
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #endif
-        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        
+        auto currentUserId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(currentUserId > 0, "User does not exist or has been deactivated");
 
-        auto groupIdResult = m_appClient->getGroupIdByUuid(groupUuid);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(groupIdResult->isSuccess(), groupIdResult->getErrorMessage());
-        ASYNC_THROW_IF(groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(groupIdResult->isSuccess() && groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
-        #endif
-        auto groupId = groupIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto groupId = m_idCache->getGroupId(groupUuid);
+        ASYNC_THROW_IF(groupId > 0, "Group does not exist or has been deactivated");
 
         auto result = m_appClient->getGroupMessages(currentUserId, groupId, 50, 0);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("MessageService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("Failed to get group messages");
+        }
         #else
         ASYNC_THROW_IF(result->isSuccess(), "Failed to get group messages");
         #endif
@@ -218,28 +186,20 @@ public:
         ASYNC_THROW_IF(groupUuid && !groupUuid->empty(), "Group ID cannot be empty");
         ASYNC_THROW_IF(page > 0, "Page number must be greater than 0");
         ASYNC_THROW_IF(size > 0 && size <= 100, "Page size must be between 1 and 100");
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #endif
-        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        
+        auto currentUserId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(currentUserId > 0, "User does not exist or has been deactivated");
 
-        auto groupIdResult = m_appClient->getGroupIdByUuid(groupUuid);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(groupIdResult->isSuccess(), groupIdResult->getErrorMessage());
-        ASYNC_THROW_IF(groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(groupIdResult->isSuccess() && groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
-        #endif
-        auto groupId = groupIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto groupId = m_idCache->getGroupId(groupUuid);
+        ASYNC_THROW_IF(groupId > 0, "Group does not exist or has been deactivated");
 
         int offset = (page - 1) * size;
         auto result = m_appClient->getGroupMessages(currentUserId, groupId, size, offset);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("MessageService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("Failed to get group messages");
+        }
         #else
         ASYNC_THROW_IF(result->isSuccess(), "Failed to get group messages");
         #endif
@@ -252,28 +212,23 @@ public:
         ASYNC_THROW_IF(request->groupUuid && !request->groupUuid->empty(), "Group ID cannot be empty");
         ASYNC_THROW_IF(request->messageType && !request->messageType->empty(), "Message type cannot be empty");
         ASYNC_THROW_IF(request->content && !request->content->empty(), "Message content cannot be empty");
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #endif
-        auto currentUserId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        
+        auto currentUserId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(currentUserId > 0, "User does not exist or has been deactivated");
 
-        auto groupIdResult = m_appClient->getGroupIdByUuid(request->groupUuid);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(groupIdResult->isSuccess(), groupIdResult->getErrorMessage());
-        ASYNC_THROW_IF(groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(groupIdResult->isSuccess() && groupIdResult->hasMoreToFetch(), "Group does not exist or has been deactivated");
-        #endif
-        auto groupId = groupIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto groupId = m_idCache->getGroupId(request->groupUuid);
+        ASYNC_THROW_IF(groupId > 0, "Group does not exist or has been deactivated");
 
         auto result = m_appClient->sendGroupMessage(currentUserId, groupId, request->messageType, request->content, request->fileUrl, request->fileSize, request->fileName, request->mimeType);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
-        ASYNC_THROW_IF(result->hasMoreToFetch(), "Failed to send group message");
+        if (!result->isSuccess()) {
+            OATPP_LOGD("MessageService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("Failed to send group message");
+        }
+        if (!result->hasMoreToFetch()) {
+            OATPP_LOGD("MessageService", "Error: %s", "Failed to send group message");
+            throw std::runtime_error("Failed to send group message");
+        }
         #else
         ASYNC_THROW_IF(result->isSuccess() && result->hasMoreToFetch(), "Failed to send group message");
         #endif

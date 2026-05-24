@@ -36,4 +36,22 @@ class FriendInfoVO : public oatpp::DTO {
     DTO_FIELD(String, status, "status"); // online, offline
     DTO_FIELD(String, createdAt, "createdat");
 };
+
+// 好友详情信息（用于查看好友详情弹窗）
+class UserDetailInfoVO : public oatpp::DTO {
+    DTO_INIT(UserDetailInfoVO, DTO)
+    DTO_FIELD(String, userUuid, "useruuid");
+    DTO_FIELD(String, username, "username");
+    DTO_FIELD(String, email, "email");
+    DTO_FIELD(String, avatarUrl, "avatarurl");
+    DTO_FIELD(String, remark, "remark");
+    DTO_FIELD(String, groupName, "groupname");
+    DTO_FIELD(String, status, "status");
+    DTO_FIELD(String, lastSeen, "lastseen");
+    DTO_FIELD(Boolean, isMuted, "ismuted");
+    DTO_FIELD(String, createdAt, "createdat");
+};
+
+
+
 #include OATPP_CODEGEN_END(DTO) 

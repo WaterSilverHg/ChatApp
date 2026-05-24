@@ -21,17 +21,19 @@
 #include "../service/GroupService.hpp"
 #include "../service/MessageService.hpp"
 #include "../service/UserStatusService.hpp"
-#include "../postgresql/AppClient.hpp"
+#include "../postgresql/AppPostgresql.hpp"
 #include "../../jwt/Appjwt.h"
 #include "../../websocket/AppWebSocket.hpp"
 #include "../../redis/AppRedis.hpp"
+#include "../../tool/UuidIdCache.hpp"
+#include "../../tool/HashUtils.hpp"
 
 #include"../dto/WebSocketMessageDto.hpp"
 
 
 class SharedWebSocketResources {
 public:
-    std::shared_ptr<AppClient> appClient;
+    std::shared_ptr<AppPostgresql> appClient;
     std::shared_ptr<Appjwt> jwt;
     std::shared_ptr<AppRedis> redis;
     std::shared_ptr<AppWebSocket> webSocket;
@@ -42,25 +44,28 @@ public:
     std::shared_ptr<GroupService> groupService;
     std::shared_ptr<MessageService> messageService;
     std::shared_ptr<UserStatusService> statusService;
+    std::shared_ptr<UuidIdCache> idCache;
 
     std::unordered_map<std::string, std::function<void(const oatpp::String&, const oatpp::String&)>> handlers;
 
     SharedWebSocketResources(
-        const std::shared_ptr<AppClient>& client,
+        const std::shared_ptr<AppPostgresql>& client,
         const std::shared_ptr<Appjwt>& jwtService,
         const std::shared_ptr<AppRedis>& redisService,
         const std::shared_ptr<AppWebSocket>& ws,
-        const std::shared_ptr<oatpp::data::mapping::ObjectMapper>& mapper)
+        const std::shared_ptr<oatpp::data::mapping::ObjectMapper>& mapper,
+        const std::shared_ptr<UuidIdCache>& idCacheService)
         : appClient(client)
         , jwt(jwtService)
         , redis(redisService)
         , webSocket(ws)
         , objectMapper(mapper)
-        , conversationService(std::make_shared<ConversationService>(client))
-        , friendService(std::make_shared<FriendService>(client))
-        , groupService(std::make_shared<GroupService>(client))
-        , messageService(std::make_shared<MessageService>(client))
-        , statusService(std::make_shared<UserStatusService>(client))
+        , idCache(idCacheService)
+        , conversationService(std::make_shared<ConversationService>(client, idCacheService))
+        , friendService(std::make_shared<FriendService>(client, idCacheService))
+        , groupService(std::make_shared<GroupService>(client, idCacheService))
+        , messageService(std::make_shared<MessageService>(client, idCacheService))
+        , statusService(std::make_shared<UserStatusService>(client, idCacheService))
     {
         initHandlers();
     }
@@ -82,38 +87,31 @@ public:
     }
 
 private:
-    // UUID → BIGINT ID 转换
+    // UUID → BIGINT ID 转换（走 Redis 缓存，防重复 DB 查询）
     oatpp::Int64 resolveUserId(const oatpp::String& uuid) {
-        auto r = appClient->getUserIdByUuid(uuid);
-        if (!r->isSuccess() || !r->hasMoreToFetch()) {
-            throw std::runtime_error("User not found: " + *uuid);
-        }
-        return r->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto id = idCache->getUserId(uuid);
+        if (id <= 0) throw std::runtime_error("User not found: " + *uuid);
+        return id;
     }
 
     oatpp::Int64 resolveMessageId(const oatpp::String& uuid) {
-        auto r = appClient->getMessageIdByUuid(uuid);
-        if (!r->isSuccess() || !r->hasMoreToFetch()) {
-            throw std::runtime_error("Message not found: " + *uuid);
-        }
-        return r->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto id = idCache->getMessageId(uuid);
+        if (id <= 0) throw std::runtime_error("Message not found: " + *uuid);
+        return id;
     }
 
     oatpp::Int64 resolveGroupId(const oatpp::String& uuid) {
-        auto r = appClient->getGroupIdByUuid(uuid);
-        if (!r->isSuccess() || !r->hasMoreToFetch()) {
-            throw std::runtime_error("Group not found: " + *uuid);
-        }
-        return r->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto id = idCache->getGroupId(uuid);
+        if (id <= 0) throw std::runtime_error("Group not found: " + *uuid);
+        return id;
     }
 
     // 获取群成员 UUID 列表（排除发送者）
     std::vector<oatpp::String> getGroupMemberUuids(const oatpp::String& groupUuid, const oatpp::String& excludeUserUuid) {
         std::vector<oatpp::String> uuids;
         try {
-            auto gidRes = appClient->getGroupIdByUuid(groupUuid);
-            if (!gidRes->isSuccess() || !gidRes->hasMoreToFetch()) return uuids;
-            auto groupId = gidRes->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+            auto groupId = idCache->getGroupId(groupUuid);
+            if (groupId <= 0)return uuids;
 
             auto members = appClient->getGroupMembers(groupId);
             if (!members->isSuccess()) return uuids;
@@ -136,14 +134,27 @@ private:
                 sendError(userUuid, "Invalid friend request data");
                 return;
             }
+            // 防重：同一用户对同一目标 3 秒内重复请求
+            if (!redis->tryAcquireDedupLock(*userUuid, "send_friend_req",
+                    *request->toUserUuid, HashUtils::hashContent(request->message), 3)) {
+                sendError(userUuid, "Duplicate request, please wait");
+                return;
+            }
             auto result = friendService->sendFriendRequest(userUuid, request);
             sendResponse(userUuid, "send_friend_request_response", objectMapper->writeToString(result));
+            //可以考虑给推送方发一个提示，表示有新的请求
         };
 
         handlers["handle_friend_request"] = [this](const oatpp::String& userUuid, const oatpp::String& msg) {
             auto request = objectMapper->readFromString<oatpp::Object<HandleFriendRequestDTO>>(msg);
             if (!request || !request->reqUuid || !request->status) {
                 sendError(userUuid, "Request UUID and status are required");
+                return;
+            }
+            // 防重：同一请求 3 秒内重复处理
+            if (!redis->tryAcquireDedupLock(*userUuid, "handle_friend_req",
+                    *request->reqUuid, "", 3)) {
+                sendError(userUuid, "Duplicate request, please wait");
                 return;
             }
             auto result = friendService->handleFriendRequest(userUuid, request->reqUuid, request->status);
@@ -187,6 +198,12 @@ private:
                 sendError(userUuid, "Invalid group data");
                 return;
             }
+            // 防重：同一用户 5 秒内重复创建群组
+            if (!redis->tryAcquireDedupLock(*userUuid, "create_group",
+                    "", HashUtils::hashContent(request->name), 5)) {
+                sendError(userUuid, "Duplicate request, please wait");
+                return;
+            }
             auto result = groupService->createGroup(userUuid, request);
             sendResponse(userUuid, "create_group_response", objectMapper->writeToString(result));
         };
@@ -201,6 +218,12 @@ private:
             auto request = objectMapper->readFromString<oatpp::Object<GroupUuidDTO>>(msg);
             if (!request || !request->groupUuid) {
                 sendError(userUuid, "Group UUID is required");
+                return;
+            }
+            // 防重：同一群组 5 秒内重复解散
+            if (!redis->tryAcquireDedupLock(*userUuid, "dissolve_group",
+                    *request->groupUuid, "", 5)) {
+                sendError(userUuid, "Duplicate request, please wait");
                 return;
             }
             auto result = groupService->dissolveGroup(userUuid, request->groupUuid);
@@ -259,6 +282,12 @@ private:
                 sendError(userUuid, "Invalid message data");
                 return;
             }
+            // 防重：同一用户对同一目标 2 秒内重复发送相同内容
+            if (!redis->tryAcquireDedupLock(*userUuid, "send_private_msg",
+                    *request->toUserUuid, HashUtils::hashContent(request->content), 2)) {
+                sendError(userUuid, "Duplicate message, please wait");
+                return;
+            }
 
             // 开始事务
             auto transaction = appClient->beginTransaction();
@@ -315,6 +344,12 @@ private:
                 sendError(userUuid, "Invalid message data");
                 return;
             }
+            // 防重：同一用户在同一群 2 秒内重复发送相同内容
+            if (!redis->tryAcquireDedupLock(*userUuid, "send_group_msg",
+                    *request->groupUuid, HashUtils::hashContent(request->content), 2)) {
+                sendError(userUuid, "Duplicate message, please wait");
+                return;
+            }
 
             // 开始事务
             auto transaction = appClient->beginTransaction();
@@ -367,6 +402,12 @@ private:
                 sendError(userUuid, "Group UUID is required");
                 return;
             }
+            // 防重：同一用户对同一群 3 秒内重复申请
+            if (!redis->tryAcquireDedupLock(*userUuid, "send_group_req",
+                    *request->groupUuid, HashUtils::hashContent(request->message), 3)) {
+                sendError(userUuid, "Duplicate request, please wait");
+                return;
+            }
             auto result = groupService->sendGroupRequest(userUuid, request->groupUuid, request);
             sendResponse(userUuid, "send_group_request_response", objectMapper->writeToString(result));
         };
@@ -375,6 +416,12 @@ private:
             auto request = objectMapper->readFromString<oatpp::Object<HandleGroupRequestDTO>>(msg);
             if (!request || !request->grUuid) {
                 sendError(userUuid, "Request UUID is required");
+                return;
+            }
+            // 防重：同一群申请 3 秒内重复处理
+            if (!redis->tryAcquireDedupLock(*userUuid, "handle_group_req",
+                    *request->grUuid, "", 3)) {
+                sendError(userUuid, "Duplicate request, please wait");
                 return;
             }
             auto result = groupService->handleGroupRequest(userUuid, request->grUuid, request);

@@ -1,7 +1,7 @@
 #ifndef HTTPAPICLIENT_H
 #define HTTPAPICLIENT_H
 
-#include "global.h"
+#include "../global.h"
 
 class HttpApiClient : public QObject
 {
@@ -18,18 +18,20 @@ public:
 
     void login(const QString& email, const QString& password);
     void registerUser(const QString& username, const QString& email,
-        const QString& password, const QString& phone = "");
+        const QString& password, const QString& verificationCode = "");
     void logout();
     void resetPassword(const QString& email, const QString& code, const QString& oldPassword, const QString& newPassword);
     void sendVerificationCode(const QString& email);
     void getCurrentUser();
 
     void getConversations();
-    void markConversationRead(const QString& convid);
+    void markPrivateConversationRead(const QString& targetUserUuid);
+    void markGroupConversationRead(const QString& groupUuid);
 
     void getSentRequests();
     void getReceivedRequests();
     void getFriends();
+    void getBlockedUsers();
 
     void getReceivedGroupRequests();
     void getSentGroupRequests();
@@ -37,6 +39,18 @@ public:
     void updateFriendGroup(const QString& friendId, const QString& group);
     void blockUser(const QString& targetUserId);
     void unblockUser(const QString& targetUserId);
+
+    // 好友分组管理
+    void getFriendGroups();
+    void createFriendGroup(const QString& name, const QJsonArray& memberUuids = QJsonArray());
+    void deleteFriendGroup(const QString& groupName);
+    void renameFriendGroup(const QString& oldName, const QString& newName);
+
+    // 消息免打扰
+    void mutePrivateConversation(const QString& targetUserUuid);
+    void unmutePrivateConversation(const QString& targetUserUuid);
+    void muteGroupConversation(const QString& groupUuid);
+    void unmuteGroupConversation(const QString& groupUuid);
 
     void getPrivateMessagesBefore(const QString& uid, const QString& msgUuid, int size);
     void getPrivateMessagesPage(const QString& uid, int page, int size);
@@ -47,6 +61,7 @@ public:
     void getMyGroups();
     void getGroupDetail(const QString& groupUuid);
     void getGroupMembers(const QString& groupUuid);
+    void getFriendDetail(const QString& friendUuid);
     void getUserInfo(const QString& userUuid);
 
     void searchUsers(const QString& keyword);
@@ -62,6 +77,7 @@ signals:
     void loginSuccess(const QJsonObject& data);
     void registerSuccess(const QJsonObject& data);
     void logoutSuccess();
+    void friendDetailReceived(const QJsonObject& friendDetail);
     void userInfoReceived(const QJsonObject& user);
     void verificationCodeSent(const QJsonObject& data);
     void passwordResetSuccess(const QJsonObject& data);
@@ -72,6 +88,7 @@ signals:
     void sentRequestsReceived(const QJsonArray& requests);
     void receivedRequestsReceived(const QJsonArray& requests);
     void friendsListReceived(const QJsonArray& friends);
+    void blockedUsersReceived(const QJsonArray& users);
 
     void receivedGroupRequestsReceived(const QJsonArray& requests);
     void sentGroupRequestsReceived(const QJsonArray& requests);
@@ -79,6 +96,13 @@ signals:
     void friendGroupUpdated(bool success);
     void userBlocked(bool success);
     void userUnblocked(bool success);
+
+    void friendGroupsReceived(const QJsonArray& groups);
+    void friendGroupCreated(bool success);
+    void friendGroupDeleted(bool success);
+    void friendGroupRenamed(bool success);
+    void conversationMuted(bool success);
+    void conversationUnmuted(bool success);
 
     void privateMessagesReceived(const QString& convUuid, const QJsonArray& messages);
     void privateMessagesBeforeReceived(const QString& convUuid, const QJsonArray& messages);
@@ -124,8 +148,6 @@ private:
     QString m_serverUrl;
     QString m_authToken;
     QList<QNetworkReply*> m_pendingReplies;
-    
-    QByteArray m_pendingFileData;
 };
 
 #endif // HTTPAPICLIENT_H

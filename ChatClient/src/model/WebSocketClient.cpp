@@ -1,6 +1,5 @@
 #include "WebSocketClient.h"
 #include "UserSession.h"
-#include <QDebug>
 
 WebSocketClient* WebSocketClient::s_instance = nullptr;
 
@@ -26,6 +25,7 @@ void WebSocketClient::setWsUrl(const QString& url)
 void WebSocketClient::connectWebSocket()
 {
     if (m_webSocket) {
+        disconnect(m_webSocket, nullptr, this, nullptr);
         m_webSocket->deleteLater();
     }
 
@@ -103,9 +103,9 @@ void WebSocketClient::onTextMessageReceived(const QString& message)
 
     auto it = m_responseHandlers.find(type);
     if (it != m_responseHandlers.end()) {
-        if (type.startsWith("new_")) {
-            obj["success"] = true;
-        }
+        // if (type.startsWith("new_")) {
+        //     obj["success"] = true;
+        // }
         bool success = obj["success"].toBool();
         if (!success) {
             QString errorMessage = obj["content"].toString();
@@ -202,6 +202,11 @@ void WebSocketClient::initResponseHandlers()
 
     m_responseHandlers["recall_message_response"] = [this](const QJsonObject& obj) {
         emit messageRecalled(obj["success"].toBool());
+    };
+
+    m_responseHandlers["error"] = [this](const QJsonObject& obj) {
+        QString errorMsg = obj["content"].toString();
+        emit errorOccurred(errorMsg);
     };
 }
 

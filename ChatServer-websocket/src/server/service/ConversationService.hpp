@@ -4,33 +4,153 @@
 #include"../dto/GeneralDto.hpp"
 #include "../dto/ConversationDto.hpp"
 #include "../vo/ConversationVo.hpp"
-#include "../postgresql/AppClient.hpp"
+#include "../postgresql/AppPostgresql.hpp"
+#include "../../tool/UuidIdCache.hpp"
 
 class ConversationService {
 private:
-    std::shared_ptr<AppClient> m_appClient;
+    std::shared_ptr<AppPostgresql> m_appClient;
+    std::shared_ptr<UuidIdCache> m_idCache;
     using Status = oatpp::web::protocol::http::Status;
 public:
-    ConversationService(const std::shared_ptr<AppClient>& appClient) : m_appClient(appClient) {}
+    ConversationService(const std::shared_ptr<AppPostgresql>& appClient,const std::shared_ptr<UuidIdCache>& idCache) 
+        : m_appClient(appClient), m_idCache(idCache) {}
 
     oatpp::Vector<oatpp::Object<ConversationVO>> getConversations(const oatpp::String& currentUserIdHeader) {
         ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
-        auto result = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
-        ASYNC_THROW_IF(result->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #else
-        ASYNC_THROW_IF(result->isSuccess() && result->hasMoreToFetch(), "User does not exist or has been deactivated");
-        #endif
-        auto id = result->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto id = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(id > 0, "User does not exist or has been deactivated");
 
-        result = m_appClient->getConversations(id);
+        auto result = m_appClient->getConversations(id);
         #ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("ConversationService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("Failed to get conversation list");
+        }
         #else
         ASYNC_THROW_IF(result->isSuccess(), "Failed to get conversation list");
         #endif
         return result->fetch<oatpp::Vector<oatpp::Object<ConversationVO>>>();
+    }
+
+    oatpp::Boolean markPrivateConversationRead(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(targetUserUuid && !targetUserUuid->empty(), "Target user ID cannot be empty");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(userId > 0, "User does not exist or has been deactivated");
+
+        auto targetUserId = m_idCache->getUserId(targetUserUuid);
+        ASYNC_THROW_IF(targetUserId > 0, "Target user does not exist");
+
+        auto result = m_appClient->markPrivateConversationRead(userId, targetUserId);
+        #ifdef SQLCHECK
+        if (!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
+        #endif
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to mark as read");
+        return true;
+    }
+
+    oatpp::Boolean markGroupConversationRead(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(groupUuid && !groupUuid->empty(), "Group ID cannot be empty");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(userId > 0, "User does not exist or has been deactivated");
+
+        auto groupId = m_idCache->getGroupId(groupUuid);
+        ASYNC_THROW_IF(groupId > 0, "Group does not exist");
+
+        auto result = m_appClient->markGroupConversationRead(userId, groupId);
+        #ifdef SQLCHECK
+        if (!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
+        #endif
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to mark as read");
+        return true;
+    }
+
+    oatpp::Boolean mutePrivateConversation(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(targetUserUuid && !targetUserUuid->empty(), "Target user ID cannot be empty");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(userId > 0, "User does not exist or has been deactivated");
+
+        auto targetUserId = m_idCache->getUserId(targetUserUuid);
+        ASYNC_THROW_IF(targetUserId > 0, "Target user does not exist");
+
+        auto result = m_appClient->mutePrivateConversation(userId, targetUserId);
+        #ifdef SQLCHECK
+        if (!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
+        #endif
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to mute conversation");
+        return true;
+    }
+
+    oatpp::Boolean muteGroupConversation(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(groupUuid && !groupUuid->empty(), "Group ID cannot be empty");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(userId > 0, "User does not exist or has been deactivated");
+
+        auto groupId = m_idCache->getGroupId(groupUuid);
+        ASYNC_THROW_IF(groupId > 0, "Group does not exist");
+
+        auto result = m_appClient->muteGroupConversation(userId, groupId);
+        #ifdef SQLCHECK
+        if (!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
+        #endif
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to mute conversation");
+        return true;
+    }
+
+    oatpp::Boolean unmutePrivateConversation(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(targetUserUuid && !targetUserUuid->empty(), "Target user ID cannot be empty");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(userId > 0, "User does not exist or has been deactivated");
+
+        auto targetUserId = m_idCache->getUserId(targetUserUuid);
+        ASYNC_THROW_IF(targetUserId > 0, "Target user does not exist");
+
+        auto result = m_appClient->unmutePrivateConversation(userId, targetUserId);
+        #ifdef SQLCHECK
+        if (!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
+        #endif
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to unmute conversation");
+        return true;
+    }
+
+    oatpp::Boolean unmuteGroupConversation(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid) {
+        ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
+        ASYNC_THROW_IF(groupUuid && !groupUuid->empty(), "Group ID cannot be empty");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(userId > 0, "User does not exist or has been deactivated");
+
+        auto groupId = m_idCache->getGroupId(groupUuid);
+        ASYNC_THROW_IF(groupId > 0, "Group does not exist");
+
+        auto result = m_appClient->unmuteGroupConversation(userId, groupId);
+        #ifdef SQLCHECK
+        if (!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
+        #endif
+        ASYNC_THROW_IF(result->isSuccess(), "Failed to unmute conversation");
+        return true;
     }
 
     //oatpp::Object<ConversationDetailVO> getConversationDetail(const oatpp::String& userUuid,const oatpp::String& convUuid) {

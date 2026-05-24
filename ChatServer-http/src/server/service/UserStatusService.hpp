@@ -3,15 +3,21 @@
 #include "global.h"
 #include "../dto/UserStatusDto.hpp"
 #include "../vo/UserStatusVo.hpp"
-#include "../vo/FriendVo.hpp"
-#include "../postgresql/AppClient.hpp"
+#include "../postgresql/AppPostgresql.hpp"
+#include "../../redis/AppRedis.hpp"
+#include "../../tool/UuidIdCache.hpp"
 
 class StatusService {
 private:
-    std::shared_ptr<AppClient> m_appClient;
+    std::shared_ptr<AppPostgresql> m_appPostgresql;
+    std::shared_ptr<AppRedis> m_redis;
+    std::shared_ptr<UuidIdCache> m_idCache;
     using Status = oatpp::web::protocol::http::Status;
 public:
-    StatusService(const std::shared_ptr<AppClient>& appClient) : m_appClient(appClient) {}
+    StatusService(const std::shared_ptr<AppPostgresql>& appClient, 
+                  const std::shared_ptr<AppRedis>& redis,
+                  const std::shared_ptr<UuidIdCache>& idCache)
+        : m_appPostgresql(appClient), m_redis(redis), m_idCache(idCache) {}
 
     oatpp::Object<UserStatusVO> updateStatus(const oatpp::String& currentUserIdHeader, const oatpp::Object<UpdateStatusRequestDTO>& request) {
 
@@ -27,16 +33,10 @@ public:
         }
         OATPP_ASSERT_HTTP(isValid, Status::CODE_400, "无效的状态值，必须是 online, offline, away, busy 之一");
 
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
-        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #else
-        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #endif
-        auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        OATPP_ASSERT_HTTP(userId > 0, Status::CODE_401, "用户不存在或已失效");
 
-        auto result = m_appClient->updateUserStatus(userId, request->status);
+        auto result = m_appPostgresql->updateUserStatus(userId, request->status);
         #ifdef SQLCHECK
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
         #else
@@ -49,7 +49,7 @@ public:
     }
 
     //oatpp::Object<UserStatusVO> getUserStatus(const oatpp::String& targetUserUuid) {
-    //    auto userCheck = m_appClient->getUserIdByUuid(targetUserUuid);
+    //    auto userCheck = m_appPostgresql->getUserIdByUuid(targetUserUuid);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_404, "用户不存在");
@@ -58,7 +58,7 @@ public:
     //    #endif
     //    auto id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //    auto result = m_appClient->getUserStatus(id);
+    //    auto result = m_appPostgresql->getUserStatus(id);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_404, "用户不存在");
     //    OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_404, "用户状态不存在");
@@ -69,23 +69,15 @@ public:
     //}
 
     oatpp::Vector<oatpp::Object<UserStatusVO>> getMultipleStatuses(const oatpp::String& currentUserIdHeader, const oatpp::Object<BatchStatusRequestDTO>& request) {
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
-        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #else
-        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #endif
         OATPP_ASSERT_HTTP(request->userUuids, Status::CODE_401, "查询的用户为空");
         auto statuses = oatpp::Vector<oatpp::Object<UserStatusVO>>::createShared();
         for (const auto& targetUserIdStr : *request->userUuids) {
-            auto uuidResult = m_appClient->getUserIdByUuid(targetUserIdStr);
-            if (!uuidResult->isSuccess() || !uuidResult->hasMoreToFetch()) {
+            auto targetUserId = m_idCache->getUserId(targetUserIdStr);
+            if (targetUserId <= 0) {
                 continue;
             }
-            auto targetUserId = uuidResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-            auto result = m_appClient->getUserStatus(targetUserId);
+            auto result = m_appPostgresql->getUserStatus(targetUserId);
             if (result->isSuccess()) {
                 auto status = result->fetch<oatpp::Vector<oatpp::Object<UserStatusVO>>>()[0];
                 statuses->push_back(status);
@@ -95,7 +87,7 @@ public:
     }
 
     //oatpp::Vector<oatpp::Object<UserInfoVO>> getOnlineUsers(const oatpp::String& currentUserIdHeader) {
-    //    auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+    //    auto userCheck = m_appPostgresql->getUserIdByUuid(currentUserIdHeader);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -103,7 +95,7 @@ public:
     //    OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
     //    #endif
 
-    //    auto result = m_appClient->getOnlineUsers();
+    //    auto result = m_appPostgresql->getOnlineUsers();
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //    #else
@@ -113,7 +105,7 @@ public:
     //}
 
     //oatpp::Vector<oatpp::Object<UserStatusVO>> getFriendsStatus(const oatpp::String& currentUserIdHeader) {
-    //    auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+    //    auto userCheck = m_appPostgresql->getUserIdByUuid(currentUserIdHeader);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -122,7 +114,7 @@ public:
     //    #endif
     //    auto id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //    auto result = m_appClient->getFriendsStatus(id);
+    //    auto result = m_appPostgresql->getFriendsStatus(id);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //    #else
@@ -133,7 +125,7 @@ public:
 
 //    oatpp::Object<UserInfoVO> getCurrentUser(const oatpp::String& userUuid) {
 //        //OATPP_LOGD("PATH", "经过");
-//        auto userCheck = m_appClient->getUserIdByUuid(userUuid);
+//        auto userCheck = m_appPostgresql->getUserIdByUuid(userUuid);
 //#ifdef SQLCHECK
 //        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
 //        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -142,7 +134,7 @@ public:
 //#endif
 //
 //        auto id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-//        auto result = m_appClient->getUserInfoById(id);
+//        auto result = m_appPostgresql->getUserInfoById(id);
 //#ifdef SQLCHECK
 //        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
 //        OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_404, "用户不存在");
@@ -155,16 +147,10 @@ public:
 
 
     oatpp::Object<UserInfoVO> updateUserInfo(const oatpp::Object<UpdateProfileRequestDTO>& request, const oatpp::String& userUuid) {
-        auto userCheck = m_appClient->getUserIdByUuid(userUuid);
-#ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
-        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-#else
-        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-#endif
+        auto userId = m_idCache->getUserId(userUuid);
+        OATPP_ASSERT_HTTP(userId > 0, Status::CODE_401, "用户不存在或已失效");
 
-        auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-        auto result = m_appClient->updateUser(userId, request->username, request->avatarUrl);
+        auto result = m_appPostgresql->updateUser(userId, request->username, request->avatarUrl);
 #ifdef SQLCHECK
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
         OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_404, "用户不存在");
@@ -172,7 +158,7 @@ public:
         OATPP_ASSERT_HTTP(result->isSuccess() && result->hasMoreToFetch(), Status::CODE_404, "用户不存在");
 #endif
 
-        auto updatedUser = m_appClient->getUserInfoById(userId);
+        auto updatedUser = m_appPostgresql->getUserInfoById(userId);
 #ifdef SQLCHECK
         OATPP_ASSERT_HTTP(updatedUser->isSuccess(), Status::CODE_500, updatedUser->getErrorMessage());
         OATPP_ASSERT_HTTP(updatedUser->hasMoreToFetch(), Status::CODE_404, "用户不存在");
@@ -183,44 +169,31 @@ public:
         return updatedUser->fetch<oatpp::Vector<oatpp::Object<UserInfoVO>>>()[0];
     }
 
-    oatpp::Vector<oatpp::Object<FriendInfoVO>> searchUsers(const oatpp::String& keyword, const oatpp::String& userUuid) {
-        auto userCheck = m_appClient->getUserIdByUuid(userUuid);
-#ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
-        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-#else
-        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-#endif
-
-        auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+    oatpp::Vector<oatpp::Object<SearchUserVO>> searchUsers(const oatpp::String& keyword, const oatpp::String& userUuid) {
+        auto userId = m_idCache->getUserId(userUuid);
+        OATPP_ASSERT_HTTP(userId > 0, Status::CODE_401, "用户不存在或已失效");
 
         OATPP_ASSERT_HTTP(keyword && !keyword->empty(), Status::CODE_400, "搜索关键词不能为空");
         auto searchKeyword = "%" + keyword + "%";
-        auto result = m_appClient->searchUsers(searchKeyword,userId);
+        auto result = m_appPostgresql->searchUsers(searchKeyword, userId);
 #ifdef SQLCHECK
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
 #else
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "搜索用户失败");
 #endif
-        auto users = result->fetch<oatpp::Vector<oatpp::Object<FriendInfoVO>>>();
+        auto users = result->fetch<oatpp::Vector<oatpp::Object<SearchUserVO>>>();
         if (!users) {
-            users = oatpp::Vector<oatpp::Object<FriendInfoVO>>::createShared();
+            users = oatpp::Vector<oatpp::Object<SearchUserVO>>::createShared();
         }
         return users;
     }
 
     oatpp::Object<UserInfoVO> getUserInfoByUuid(const oatpp::String& userUuid) {
-        auto userCheck = m_appClient->getUserIdByUuid(userUuid);
-#ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
-        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_404, "用户不存在");
-#else
-        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_404, "用户不存在");
-#endif
-        auto id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto id = m_idCache->getUserId(userUuid);
+        OATPP_ASSERT_HTTP(id > 0, Status::CODE_404, "用户不存在");
 
         // 获取用户基本信息
-        auto userResult = m_appClient->getUserInfoById(id);
+        auto userResult = m_appPostgresql->getUserInfoById(id);
 #ifdef SQLCHECK
         OATPP_ASSERT_HTTP(userResult->isSuccess(), Status::CODE_500, userResult->getErrorMessage());
         OATPP_ASSERT_HTTP(userResult->hasMoreToFetch(), Status::CODE_404, "用户不存在");
@@ -230,7 +203,7 @@ public:
         //auto userProfile = userResult->fetch<oatpp::Vector<oatpp::Object<UserInfoVO>>>()[0];
         return userResult->fetch<oatpp::Vector<oatpp::Object<UserInfoVO>>>()[0];
         //// 获取用户状态信息（包含lastSeen）
-        //auto statusResult = m_appClient->getUserStatus(id);
+        //auto statusResult = m_appPostgresql->getUserStatus(id);
         //oatpp::String lastSeen = nullptr;
         //oatpp::String status = nullptr;
         //if (statusResult->isSuccess() && statusResult->hasMoreToFetch()) {

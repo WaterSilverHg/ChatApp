@@ -3,14 +3,17 @@
 #include "global.h"
 #include "../dto/UserStatusDto.hpp"
 #include "../vo/UserStatusVo.hpp"
-#include "../postgresql/AppClient.hpp"
+#include "../postgresql/AppPostgresql.hpp"
+#include "../../tool/UuidIdCache.hpp"
 
 class UserStatusService {
 private:
-    std::shared_ptr<AppClient> m_appClient;
+    std::shared_ptr<AppPostgresql> m_appClient;
+    std::shared_ptr<UuidIdCache> m_idCache;
     using Status = oatpp::web::protocol::http::Status;
 public:
-    UserStatusService(const std::shared_ptr<AppClient>& appClient) : m_appClient(appClient) {}
+    UserStatusService(const std::shared_ptr<AppPostgresql>& appClient, const std::shared_ptr<UuidIdCache>& idCache) 
+        : m_appClient(appClient), m_idCache(idCache) {}
 
     oatpp::Object<UserStatusVO> updateStatus(const oatpp::String& currentUserIdHeader, const oatpp::Object<UpdateStatusRequestDTO>& request) {
 
@@ -26,21 +29,18 @@ public:
         }
         ASYNC_THROW_IF(isValid, "Invalid status value, must be one of: online, offline, away, busy");
 
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-#ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has expired");
-#else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has expired");
-#endif
-        auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(userId > 0, "User does not exist or has expired");
 
         auto result = m_appClient->updateUserStatus(userId, request->status);
-#ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
-#else
+        #ifdef SQLCHECK
+        if (!result->isSuccess()) {
+            OATPP_LOGD("UserStatusService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("User does not exist");
+        }
+        #else
         ASYNC_THROW_IF(result->isSuccess(), "User does not exist");
-#endif
+        #endif
         auto status = UserStatusVO::createShared();
         status->userId = currentUserIdHeader;
         status->status = request->status;
@@ -68,21 +68,16 @@ public:
     //}
 
     oatpp::Vector<oatpp::Object<UserStatusVO>> getMultipleStatuses(const oatpp::String& currentUserIdHeader, const oatpp::Object<BatchStatusRequestDTO>& request) {
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has expired");
-        #else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has expired");
-        #endif
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        ASYNC_THROW_IF(userId > 0, "User does not exist or has expired");
+        
         ASYNC_THROW_IF(request->userUuids, "Query users cannot be empty");
         auto statuses = oatpp::Vector<oatpp::Object<UserStatusVO>>::createShared();
         for (const auto& targetUserIdStr : *request->userUuids) {
-            auto uuidResult = m_appClient->getUserIdByUuid(targetUserIdStr);
-            if (!uuidResult->isSuccess() || !uuidResult->hasMoreToFetch()) {
+            auto targetUserId = m_idCache->getUserId(targetUserIdStr);
+            if (targetUserId <= 0) {
                 continue;
             }
-            auto targetUserId = uuidResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
             auto result = m_appClient->getUserStatus(targetUserId);
             if (result->isSuccess()) {
@@ -131,49 +126,53 @@ public:
     //}
 
     oatpp::Object<UserProfileVO> getCurrentUser(const oatpp::String& userId) {
-        auto userCheck = m_appClient->getUserIdByUuid(userId);
-#ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has expired");
-#else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has expired");
-#endif
-
-        auto id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto id = m_idCache->getUserId(userId);
+        ASYNC_THROW_IF(id > 0, "User does not exist or has expired");
         auto result = m_appClient->getUserById(id);
-#ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
-        ASYNC_THROW_IF(result->hasMoreToFetch(), "User does not exist");
-#else
+        #ifdef SQLCHECK
+        if (result->isSuccess()) {
+            OATPP_LOGD("UserStatusService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("User does not exist");
+        }
+        if (result->hasMoreToFetch()) {
+            OATPP_LOGD("UserStatusService", "Error: %s", "User does not exist");
+            throw std::runtime_error("User does not exist");
+        }
+        #else
         ASYNC_THROW_IF(result->isSuccess() && result->hasMoreToFetch(), "User does not exist");
-#endif
+        #endif
 
         return result->fetch<oatpp::Vector<oatpp::Object<UserProfileVO>>>()[0];
     }
 
 
     oatpp::Object<UserProfileVO> updateUserInfo(const oatpp::Object<UpdateProfileRequestDTO>& request, const oatpp::String& userId) {
-        auto userCheck = m_appClient->getUserIdByUuid(userId);
-#ifdef SQLCHECK
-        ASYNC_THROW_IF(userCheck->isSuccess(), userCheck->getErrorMessage());
-        ASYNC_THROW_IF(userCheck->hasMoreToFetch(), "User does not exist or has expired");
-#else
-        ASYNC_THROW_IF(userCheck->isSuccess() && userCheck->hasMoreToFetch(), "User does not exist or has expired");
-#endif
-
-        auto id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto id = m_idCache->getUserId(userId);
+        ASYNC_THROW_IF(id > 0, "User does not exist or has expired");
         auto result = m_appClient->updateUser(id, request->username, request->avatarUrl);
-#ifdef SQLCHECK
-        ASYNC_THROW_IF(result->isSuccess(), result->getErrorMessage());
-        ASYNC_THROW_IF(result->hasMoreToFetch(), "User does not exist");
-#else
+        #ifdef SQLCHECK
+        if (result->isSuccess()) {
+            OATPP_LOGD("UserStatusService", "Error: %s", result->getErrorMessage());
+            throw std::runtime_error("User does not exist");
+        }
+        if (result->hasMoreToFetch()) {
+            OATPP_LOGD("UserStatusService", "Error: %s", "User does not exist");
+            throw std::runtime_error("User does not exist");
+        }
+        #else
         ASYNC_THROW_IF(result->isSuccess() && result->hasMoreToFetch(), "User does not exist");
-#endif
+        #endif
 
         auto updatedUser = m_appClient->getUserById(id);
-#ifdef SQLCHECK
-        ASYNC_THROW_IF(updatedUser->isSuccess(), updatedUser->getErrorMessage());
-        ASYNC_THROW_IF(updatedUser->hasMoreToFetch(), "User does not exist");
+        #ifdef SQLCHECK
+        if (updatedUser->isSuccess()) {
+            OATPP_LOGD("UserStatusService", "Error: %s", updatedUser->getErrorMessage());
+            throw std::runtime_error("User does not exist");
+        }
+        if (updatedUser->hasMoreToFetch()) {
+            OATPP_LOGD("UserStatusService", "Error: %s", "User does not exist");
+            throw std::runtime_error("User does not exist");
+        }
         #else
         ASYNC_THROW_IF(updatedUser->isSuccess() && updatedUser->hasMoreToFetch(), "User does not exist");
         #endif

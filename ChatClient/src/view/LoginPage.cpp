@@ -1,10 +1,5 @@
 #include "LoginPage.h"
-#include "UserSession.h"
-#include <QStandardPaths>
-#include <QDir>
-#include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
+#include "../model/UserSession.h"
 
 LoginPage::LoginPage(QWidget *parent)
     : QWidget(parent)
@@ -13,6 +8,13 @@ LoginPage::LoginPage(QWidget *parent)
 {
     ui.setupUi(this);
     setWindowTitle("登录");
+    setWindowIcon(QIcon(":/chat.svg"));
+//    setStyleSheet(StyleConst::DIALOG_STYLE);
+
+//    ui.loginButton->setStyleSheet(StyleConst::BUTTON_STYLE);
+//    ui.registerLink->setStyleSheet("color: #1A4D1A; text-decoration: underline; background: none; border: none;");
+//    ui.emailEdit->setStyleSheet(StyleConst::LINEEDIT_STYLE);
+//    ui.passwordEdit->setStyleSheet(StyleConst::LINEEDIT_STYLE);
 
     m_httpClient->setServerUrl(HTTP_BASE_URL);
     m_wsClient->setWsUrl(WEBSOCKET_URL);

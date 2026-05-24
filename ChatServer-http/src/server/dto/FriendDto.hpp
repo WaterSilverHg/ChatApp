@@ -84,4 +84,22 @@ class UpdateFriendGroupDTO : public oatpp::DTO {
     DTO_FIELD(String, group, "group");
 };
 
-#include OATPP_CODEGEN_END(DTO) 
+// 创建/管理好友分组
+class CreateFriendGroupDTO : public oatpp::DTO {
+    DTO_INIT(CreateFriendGroupDTO, DTO)
+    DTO_FIELD(String, name, "name");
+    DTO_FIELD(Vector<String>, memberUuids, "memberUuids");
+};
+
+class RenameFriendGroupDTO : public oatpp::DTO {
+    DTO_INIT(RenameFriendGroupDTO, DTO)
+    DTO_FIELD(String, newName, "newName");
+};
+
+// 分组名列表项
+class GroupNameVO : public oatpp::DTO {
+    DTO_INIT(GroupNameVO, DTO)
+    DTO_FIELD(String, groupName, "groupName");
+};
+
+#include OATPP_CODEGEN_END(DTO)

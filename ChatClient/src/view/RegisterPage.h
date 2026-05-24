@@ -1,9 +1,9 @@
 #pragma once
 
-#include "global.h"
+#include "../global.h"
 #include "ui_RegisterPage.h"
-#include "HttpApiClient.h"
-#include "WebSocketClient.h"
+#include "../model/HttpApiClient.h"
+#include "../model/WebSocketClient.h"
 
 class RegisterPage : public QWidget
 {
@@ -20,9 +20,11 @@ signals:
 
 private slots:
     void on_registerButton_clicked();
-    void on_backLink_clicked();
+    void on_backToLoginLink_clicked();
     void on_showPasswordCheckBox_toggled(bool checked);
+    void on_sendCodeButton_clicked();
     void onRegisterSuccess(const QJsonObject& data);
+    void onVerificationCodeSent(const QJsonObject& data);
     void onError(const QString& errorMessage, int errorCode);
     void onLoginSuccess(const QJsonObject& data);
     void onWebSocketConnected();
@@ -43,4 +45,6 @@ private:
     WebSocketClient* m_wsClient;
     QString m_pendingToken;
     QJsonObject m_pendingUser;
+    QTimer m_countdownTimer;
+    int m_codeCountdown;
 };

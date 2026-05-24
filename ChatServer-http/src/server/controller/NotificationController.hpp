@@ -12,15 +12,19 @@ private:
 
 public:
     NotificationController(OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
-                           OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient))
+                           OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appPostgresql),
+                           OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis),
+                           OATPP_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache))
         : oatpp::web::server::api::ApiController(objectMapper),
-          m_notificationService(std::make_shared<NotificationService>(appClient)) {}
+          m_notificationService(std::make_shared<NotificationService>(appPostgresql, redis, uuidIdCache)) {}
 
     static std::shared_ptr<NotificationController> createShared(
         OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
-        OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient)
+        OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appPostgresql),
+        OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis),
+        OATPP_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache)
     ) {
-        return std::make_shared<NotificationController>(objectMapper, appClient);
+        return std::make_shared<NotificationController>(objectMapper, appPostgresql, redis, uuidIdCache);
     }
 
     ENDPOINT_INFO(getNotifications) {

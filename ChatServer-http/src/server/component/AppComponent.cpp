@@ -1,6 +1,7 @@
 #pragma once
 #include"global.h"
 #include"../handler/AppErrorHandler.h"
+#include "../../tool/UuidIdCache.hpp"
 #include"../../jwt/Appjwt.h"
 //#include "../interceptor/AppAuthInterceptor.h"
 /**
@@ -85,4 +86,10 @@ public:
 
         return connectionHandler;
         }());
+
+    OATPP_CREATE_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache)([] {
+        OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis);
+        OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appClient);
+        return std::make_shared<UuidIdCache>(redis, appClient);
+    }());
 };

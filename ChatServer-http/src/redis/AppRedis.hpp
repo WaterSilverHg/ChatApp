@@ -130,4 +130,51 @@ public:
 			return false;
 		}
 	}
+
+	// 短期去重 - 尝试创建去重键
+	// 返回 true 表示是第一次请求，返回 false 表示重复请求
+	bool tryAcquireDedupLock(const std::string& userUuid, const std::string& action, 
+							  const std::string& targetUuid = "", const std::string& contentHash = "",
+							  int ttlSeconds = 1) {
+		try {
+			std::string key = buildDedupKey(userUuid, action, targetUuid, contentHash);
+			// SET NX EX: 只有键不存在时才设置，设置成功后自动过期
+			auto result = handle->set(key, "1",
+                    std::chrono::seconds(ttlSeconds),
+                    sw::redis::UpdateType::NOT_EXIST);
+			return result;
+		} catch (const sw::redis::Error& e) {
+			std::cerr << "Error acquiring dedup lock: " << e.what() << std::endl;
+			return false;
+		}
+	}
+
+	// 释放去重键（可选，通常让其自动过期）
+	bool releaseDedupLock(const std::string& userUuid, const std::string& action, 
+						  const std::string& targetUuid = "", const std::string& contentHash = "") {
+		try {
+			std::string key = buildDedupKey(userUuid, action, targetUuid, contentHash);
+			handle->del(key);
+			return true;
+		} catch (const sw::redis::Error& e) {
+			std::cerr << "Error releasing dedup lock: " << e.what() << std::endl;
+			return false;
+		}
+	}
+
+private:
+	// 构建去重键
+	std::string buildDedupKey(const std::string& userUuid, const std::string& action, 
+							  const std::string& targetUuid, const std::string& contentHash) {
+		std::string key = "dedup:" + userUuid + ":" + action;
+		if (!targetUuid.empty()) {
+			key += ":" + targetUuid;
+		} else {
+			key += ":_";
+		}
+		if (!contentHash.empty()) {
+			key += ":" + contentHash;
+		}
+		return key;
+	}
 };

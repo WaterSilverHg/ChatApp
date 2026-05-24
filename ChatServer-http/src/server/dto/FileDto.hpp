@@ -21,6 +21,7 @@ class FileInfoDTO : public oatpp::DTO {
 // 上传文件请求（创建文件记录）
 class UploadFileRequestDTO : public oatpp::DTO {
     DTO_INIT(UploadFileRequestDTO, DTO)
+        DTO_FIELD(String, fileName, "filename");
     DTO_FIELD(String, fileType, "filetype");
     DTO_FIELD(String, mimeType, "mimetype");
     DTO_FIELD(Int64, fileSize, "filesize");

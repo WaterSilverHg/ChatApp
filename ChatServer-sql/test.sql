@@ -178,16 +178,7 @@ SELECT to_user_id, from_user_id, 'accepted', 'Close Friends'
 FROM friend_requests WHERE status = 'accepted'
 ON CONFLICT (user_id, friend_id) DO NOTHING;
 
--- 3.2 创建 friend_requests pending 请求（zhangwei -> wangqiang）
-INSERT INTO friend_requests (from_user_id, to_user_id, message, status)
-SELECT u1.id, u2.id, 'Hello!', 'pending'
-FROM users u1, users u2
-WHERE u1.username = 'zhangwei' AND u2.username = 'wangqiang'
-ON CONFLICT (from_user_id, to_user_id) DO NOTHING;
-
--- 注意：原脚本中对于 pending 请求没有直接插入 friendships，这里模拟原逻辑暂不插入 friendships 的 pending
-
--- 3.3 创建 friend_requests accepted 请求（lifang -> zhaomin）
+-- 3.2 创建 friend_requests accepted 请求（lifang -> zhaomin）
 INSERT INTO friend_requests (from_user_id, to_user_id, message, status)
 SELECT u1.id, u2.id, 'Friend request', 'accepted'
 FROM users u1, users u2
@@ -207,21 +198,15 @@ FROM friend_requests WHERE from_user_id = (SELECT id FROM users WHERE username =
   AND to_user_id = (SELECT id FROM users WHERE username = 'zhaomin')
 ON CONFLICT DO NOTHING;
 
--- 3.4 直接插入 friendships pending 记录（chenjing -> zhangwei），模拟原脚本中直接创建 pending 关系
-INSERT INTO friendships (user_id, friend_id, status, remark, group_name)
-SELECT u1.id, u2.id, 'pending', NULL, 'Default Group'
-FROM users u1, users u2
-WHERE u1.username = 'chenjing' AND u2.username = 'zhangwei'
-ON CONFLICT DO NOTHING;
-
--- 为了保持完整，同时在 friend_requests 中也创建一条对应的请求记录（可选，但为了数据一致性，也插入）
+-- 3.3 创建 pending 好友请求（chenjing -> zhangwei）
+-- 注意：pending 状态只存在于 friend_requests，friendships 应该在请求被接受后才创建
 INSERT INTO friend_requests (from_user_id, to_user_id, message, status)
 SELECT u1.id, u2.id, 'Hi, add me please', 'pending'
 FROM users u1, users u2
 WHERE u1.username = 'chenjing' AND u2.username = 'zhangwei'
 ON CONFLICT (from_user_id, to_user_id) DO NOTHING;
 
--- 3.5 添加额外好友关系（wangqiang <-> zhaomin）通过 accepted 请求
+-- 3.4 创建 wangqiang <-> zhaomin 好友关系（accepted）
 INSERT INTO friend_requests (from_user_id, to_user_id, message, status)
 SELECT u1.id, u2.id, 'Classmate', 'accepted'
 FROM users u1, users u2
@@ -238,6 +223,25 @@ INSERT INTO friendships (user_id, friend_id, status, group_name)
 SELECT to_user_id, from_user_id, 'accepted', 'School'
 FROM friend_requests WHERE from_user_id = (SELECT id FROM users WHERE username = 'wangqiang')
   AND to_user_id = (SELECT id FROM users WHERE username = 'zhaomin')
+ON CONFLICT DO NOTHING;
+
+-- 3.5 创建 zhangwei <-> wangqiang 好友关系（accepted）- 修复：他们之间有消息往来应该是好友
+INSERT INTO friend_requests (from_user_id, to_user_id, message, status)
+SELECT u1.id, u2.id, 'Nice to meet you!', 'accepted'
+FROM users u1, users u2
+WHERE u1.username = 'zhangwei' AND u2.username = 'wangqiang'
+ON CONFLICT (from_user_id, to_user_id) DO NOTHING;
+
+INSERT INTO friendships (user_id, friend_id, status, remark, group_name)
+SELECT from_user_id, to_user_id, 'accepted', 'Tech friend', 'Technology'
+FROM friend_requests WHERE from_user_id = (SELECT id FROM users WHERE username = 'zhangwei')
+  AND to_user_id = (SELECT id FROM users WHERE username = 'wangqiang')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO friendships (user_id, friend_id, status, group_name)
+SELECT to_user_id, from_user_id, 'accepted', 'Technology'
+FROM friend_requests WHERE from_user_id = (SELECT id FROM users WHERE username = 'zhangwei')
+  AND to_user_id = (SELECT id FROM users WHERE username = 'wangqiang')
 ON CONFLICT DO NOTHING;
 
 -- 验证好友关系（统计 accepted + pending）
@@ -353,12 +357,25 @@ FROM users u1, users u2
 WHERE u1.username = 'zhangwei' AND u2.username = 'wangqiang';
 
 INSERT INTO messages (from_user_id, to_user_id, message_type, content)
-SELECT 
+SELECT
     u1.id, u2.id, 'file', 'project_document.pdf'
 FROM users u1, users u2
 WHERE u1.username = 'lifang' AND u2.username = 'zhaomin';
 
--- 5.2 群聊消息
+-- 5.2 为 wangqiang <-> zhaomin 添加消息（确保好友之间有会话）
+INSERT INTO messages (from_user_id, to_user_id, message_type, content)
+SELECT
+    u1.id, u2.id, 'text', 'Hey, are you coming to the study session?'
+FROM users u1, users u2
+WHERE u1.username = 'wangqiang' AND u2.username = 'zhaomin';
+
+INSERT INTO messages (from_user_id, to_user_id, message_type, content)
+SELECT
+    u1.id, u2.id, 'text', 'Yes, see you there!'
+FROM users u1, users u2
+WHERE u1.username = 'zhaomin' AND u2.username = 'wangqiang';
+
+-- 5.3 群聊消息
 INSERT INTO messages (from_user_id, to_group_id, message_type, content)
 SELECT 
     u.id, g.id, 'text', '欢迎大家加入技术交流群！'
@@ -384,7 +401,7 @@ SELECT
 FROM users u, groups g
 WHERE u.username = 'zhaomin' AND g.name = '私密讨论组';
 
--- 5.3 系统消息
+-- 5.4 系统消息
 INSERT INTO messages (from_user_id, to_user_id, message_type, content)
 SELECT 
     u.id, u.id, 'system', '欢迎使用聊天室系统！'

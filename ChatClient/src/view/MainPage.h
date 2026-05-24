@@ -1,7 +1,6 @@
 #pragma once
 
-#include <QtWidgets/QWidget>
-#include "ui_MainPage.h"
+#include "../global.h"
 
 class MainPage : public QWidget
 {
@@ -10,7 +9,4 @@ class MainPage : public QWidget
 public:
     MainPage(QWidget *parent = nullptr);
     ~MainPage();
-
-private:
-    Ui::MainPageClass ui;
 };

@@ -14,19 +14,23 @@ private:
     std::shared_ptr<FileService> m_fileService;
 public:
     FileController(OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
-                   OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient),
-                   OATPP_COMPONENT(std::shared_ptr<AppCos>, cosClient))
+                   OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appPostgresql),
+                   OATPP_COMPONENT(std::shared_ptr<AppCos>, cosClient),
+                   OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis),
+                   OATPP_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache))
         : oatpp::web::server::api::ApiController(objectMapper),
-          m_fileService(std::make_shared<FileService>(appClient, cosClient)) {
+          m_fileService(std::make_shared<FileService>(appPostgresql, cosClient, redis, uuidIdCache)) {
         setDefaultAuthorizationHandler(std::make_shared<AppAuthHandler>());
     }
 
     static std::shared_ptr<FileController> createShared(
         OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
-        OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient),
-        OATPP_COMPONENT(std::shared_ptr<AppCos>, cosClient)
+        OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appPostgresql),
+        OATPP_COMPONENT(std::shared_ptr<AppCos>, cosClient),
+        OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis),
+        OATPP_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache)
     ) {
-        return std::make_shared<FileController>(objectMapper, appClient, cosClient);
+        return std::make_shared<FileController>(objectMapper, appPostgresql, cosClient, redis, uuidIdCache);
     }
 
     ENDPOINT_INFO(createUploadRecord) {

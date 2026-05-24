@@ -4,13 +4,18 @@
 #include"../dto/GeneralDto.hpp"
 #include "../dto/FileDto.hpp"
 #include "../vo/FileVo.hpp"
-#include "../postgresql/AppClient.hpp"
+#include "../postgresql/AppPostgresql.hpp"
 #include "../../cos/AppCos.hpp"
+#include "../../redis/AppRedis.hpp"
+#include "../../tool/UuidIdCache.hpp"
+#include "../../tool/HashUtils.hpp"
 
 class FileService {
 private:
-    std::shared_ptr<AppClient> m_appClient;
+    std::shared_ptr<AppPostgresql> m_appPostgresql;
     std::shared_ptr<AppCos> m_cosClient;
+    std::shared_ptr<AppRedis> m_redis;
+    std::shared_ptr<UuidIdCache> m_idCache;
     using Status = oatpp::web::protocol::http::Status;
     
     std::string generateCosObjectName(const oatpp::String& fileType,const oatpp::String& userUuid) {
@@ -29,32 +34,35 @@ private:
         return fileType+"/" + userUuid + "/" + timestamp + "_" + std::to_string(randNum);
     }
 public:
-    FileService(const std::shared_ptr<AppClient>& appClient, 
-                const std::shared_ptr<AppCos>& cosClient) 
-        : m_appClient(appClient), m_cosClient(cosClient) {}
+    FileService(const std::shared_ptr<AppPostgresql>& appClient,
+                const std::shared_ptr<AppCos>& cosClient,
+                const std::shared_ptr<AppRedis>& redis,
+                const std::shared_ptr<UuidIdCache>& idCache)
+        : m_appPostgresql(appClient), m_cosClient(cosClient), m_redis(redis), m_idCache(idCache) {}
 
     // 创建文件上传记录（状态为 uploading），返回文件 uuid
     oatpp::Object<FileInfoVO> createUploadRecord(const oatpp::String& currentUserUuId, const oatpp::Object<UploadFileRequestDTO>& request) {
         OATPP_ASSERT_HTTP(currentUserUuId && !currentUserUuId->empty(), Status::CODE_400, "用户ID不能为空");
-        
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserUuId);
-        #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
-        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #else
-        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #endif
-        auto user_id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+
+        // 防重：同一用户 3 秒内重复创建上传记录
+        if (!m_redis->tryAcquireDedupLock(currentUserUuId->c_str(), "create_upload",
+                "", HashUtils::hashContent(request->fileName), 3)) {
+            OATPP_ASSERT_HTTP(false, Status::CODE_429, "请求过于频繁，请稍后再试");
+        }
+
+        auto user_id = m_idCache->getUserId(currentUserUuId);
+        OATPP_ASSERT_HTTP(user_id > 0, Status::CODE_401, "用户不存在或已失效");
         
         oatpp::String cosObjectName = generateCosObjectName(request->fileType,currentUserUuId);
         
-        auto result = m_appClient->createFileRecord(cosObjectName, request->fileSize, request->fileType, request->mimeType, user_id);
+        auto result = m_appPostgresql->createFileRecord(cosObjectName, request->fileSize, request->fileType, request->mimeType, user_id);
         #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
-        OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_400, "创建文件记录失败");
-        #else
-        OATPP_ASSERT_HTTP(result->isSuccess() && result->hasMoreToFetch(), Status::CODE_400, "创建文件记录失败");
+        if(!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
         #endif
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "创建文件记录失败");
+        OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_400, "创建文件记录失败");
         
         return result->fetch<oatpp::Vector<oatpp::Object<FileInfoVO>>>()[0];
     }
@@ -63,68 +71,67 @@ public:
     oatpp::Object<FileInfoVO> uploadFileData(const oatpp::String& sender,const oatpp::String& fileUuid, const std::string& fileData) {
         OATPP_ASSERT_HTTP(fileUuid && !fileUuid->empty(), Status::CODE_400, "文件ID不能为空");
         OATPP_ASSERT_HTTP(!fileData.empty(), Status::CODE_400, "文件数据不能为空");
-        
+
+        // 防重：同一文件 5 秒内重复上传（COS 操作昂贵）
+        if (!m_redis->tryAcquireDedupLock(sender->c_str(), "upload_file",
+                fileUuid->c_str(), HashUtils::hashContent(fileData.c_str()), 5)) {
+            OATPP_ASSERT_HTTP(false, Status::CODE_429, "请求过于频繁，请稍后再试");
+        }
+
         // 获取文件信息
-        auto fileIdResult = m_appClient->getFileIdByUuid(fileUuid);
-        #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(fileIdResult->isSuccess(), Status::CODE_500, fileIdResult->getErrorMessage());
-        OATPP_ASSERT_HTTP(fileIdResult->hasMoreToFetch(), Status::CODE_404, "文件不存在");
-        #else
-        OATPP_ASSERT_HTTP(fileIdResult->isSuccess() && fileIdResult->hasMoreToFetch(), Status::CODE_404, "文件不存在");
-        #endif
-        auto fileId = fileIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto fileId = m_idCache->getFileId(fileUuid);
+        OATPP_ASSERT_HTTP(fileId > 0, Status::CODE_404, "文件不存在");
         
         // 获取文件详情（获取 cosObjectName）
-        auto fileDetailResult = m_appClient->getFileDetailById(fileId);
+        auto fileDetailResult = m_appPostgresql->getFileDetailById(fileId);
         #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(fileDetailResult->isSuccess(), Status::CODE_500, fileDetailResult->getErrorMessage());
-        OATPP_ASSERT_HTTP(fileDetailResult->hasMoreToFetch(), Status::CODE_404, "文件不存在");
-        #else
-        OATPP_ASSERT_HTTP(fileDetailResult->isSuccess() && fileDetailResult->hasMoreToFetch(), Status::CODE_404, "文件不存在");
+        if(!fileDetailResult->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", fileDetailResult->getErrorMessage()->c_str());
+        }
         #endif
+        OATPP_ASSERT_HTTP(fileDetailResult->isSuccess(), Status::CODE_500, "获取文件详情失败");
+        OATPP_ASSERT_HTTP(fileDetailResult->hasMoreToFetch(), Status::CODE_404, "文件不存在");
         auto fileDetailInfo = fileDetailResult->fetch<oatpp::Vector<oatpp::Object<FileDetailInfoVO>>>()[0];
         
         // 上传到 COS
         std::string fileUrl;
         try {
+            // cosObjectName 存储在 file_name 列，file_path 在上传完成后才写入 URL
             fileUrl = m_cosClient->uploadFromStream(fileData, fileDetailInfo->fileName, fileDetailInfo->mimeType);
         } catch (const std::exception& e) {
-            auto updateResult = m_appClient->updateFileStatus("failed", oatpp::String(""), fileId);
+            auto updateResult = m_appPostgresql->updateFileStatus("failed", oatpp::String(""), fileId);
 #ifdef SQLCHECK
-            OATPP_ASSERT_HTTP(false, Status::CODE_500, "上传至COS失败: " + oatpp::String(e.what()));
-#else
-            OATPP_ASSERT_HTTP(updateResult->isSuccess() && updateResult->hasMoreToFetch(), Status::CODE_400, "更新文件状态失败");
+            if(!updateResult->isSuccess()) {
+                OATPP_LOGE("SQL_ERROR", "%s", updateResult->getErrorMessage()->c_str());
+            }
 #endif
+            OATPP_ASSERT_HTTP(false, Status::CODE_500, "上传至COS失败");
         }
         
         // 更新文件状态为 completed
-        auto updateResult = m_appClient->updateFileStatus("completed", oatpp::String(fileUrl), fileId);
+        auto updateResult = m_appPostgresql->updateFileStatus("completed", oatpp::String(fileUrl), fileId);
         #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(updateResult->isSuccess(), Status::CODE_500, updateResult->getErrorMessage());
-        OATPP_ASSERT_HTTP(updateResult->hasMoreToFetch(), Status::CODE_400, "更新文件状态失败");
-        #else
-        OATPP_ASSERT_HTTP(updateResult->isSuccess() && updateResult->hasMoreToFetch(), Status::CODE_400, "更新文件状态失败");
+        if(!updateResult->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", updateResult->getErrorMessage()->c_str());
+        }
         #endif
+        OATPP_ASSERT_HTTP(updateResult->isSuccess(), Status::CODE_500, "更新文件状态失败");
+        OATPP_ASSERT_HTTP(updateResult->hasMoreToFetch(), Status::CODE_400, "更新文件状态失败");
         
         // 如果是头像类型，更新用户头像
         if (fileDetailInfo->fileType && fileDetailInfo->fileType == "avatar") {
             // 将 uploaderUuid 转换为 userId
-            auto userIdResult = m_appClient->getUserIdByUuid(fileDetailInfo->uploaderUuid);
-            #ifdef SQLCHECK
-            OATPP_ASSERT_HTTP(userIdResult->isSuccess(), Status::CODE_500, userIdResult->getErrorMessage());
-            OATPP_ASSERT_HTTP(userIdResult->hasMoreToFetch(), Status::CODE_404, "上传者不存在");
-            #else
-            OATPP_ASSERT_HTTP(userIdResult->isSuccess() && userIdResult->hasMoreToFetch(), Status::CODE_404, "上传者不存在");
-            #endif
-            auto userId = userIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+            auto userId = m_idCache->getUserId(fileDetailInfo->uploaderUuid);
+            OATPP_ASSERT_HTTP(userId > 0, Status::CODE_404, "上传者不存在");
             
             // 更新用户头像
-            auto updateAvatarResult = m_appClient->updateUserAvatar(userId, oatpp::String(fileUrl));
+            auto updateAvatarResult = m_appPostgresql->updateUserAvatar(userId, oatpp::String(fileUrl));
             #ifdef SQLCHECK
-            OATPP_ASSERT_HTTP(updateAvatarResult->isSuccess(), Status::CODE_500, updateAvatarResult->getErrorMessage());
-            #else
-            OATPP_ASSERT_HTTP(updateAvatarResult->isSuccess(), Status::CODE_500, "更新用户头像失败");
+            if(!updateAvatarResult->isSuccess()) {
+                OATPP_LOGE("SQL_ERROR", "%s", updateAvatarResult->getErrorMessage()->c_str());
+            }
             #endif
+            OATPP_ASSERT_HTTP(updateAvatarResult->isSuccess(), Status::CODE_500, "更新用户头像失败");
         }
         
         return updateResult->fetch<oatpp::Vector<oatpp::Object<FileInfoVO>>>()[0];
@@ -138,7 +145,7 @@ public:
     //    OATPP_ASSERT_HTTP(!fileData.empty(), Status::CODE_400, "文件数据不能为空");
     //    
     //    // 获取用户ID
-    //    auto userCheck = m_appClient->getUserIdByUuid(currentUserUuId);
+    //    auto userCheck = m_appPostgresql->getUserIdByUuid(currentUserUuId);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -151,7 +158,7 @@ public:
     //    std::string cosObjectName = generateCosObjectName(fileType, currentUserUuId);
     //    
     //    // 创建数据库记录（状态 uploading）
-    //    auto createResult = m_appClient->createFileRecord(cosObjectName, fileSize, fileType, mimeType, userId);
+    //    auto createResult = m_appPostgresql->createFileRecord(cosObjectName, fileSize, fileType, mimeType, userId);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(createResult->isSuccess(), Status::CODE_500, createResult->getErrorMessage());
     //    OATPP_ASSERT_HTTP(createResult->hasMoreToFetch(), Status::CODE_500, "创建文件记录失败");
@@ -166,12 +173,12 @@ public:
     //    try {
     //        fileUrl = m_cosClient->uploadFromStream(fileData, cosObjectName, mimeType);
     //    } catch (const std::exception& e) {
-    //        m_appClient->updateFileStatus("failed", oatpp::String(""), fileId);
+    //        m_appPostgresql->updateFileStatus("failed", oatpp::String(""), fileId);
     //        OATPP_ASSERT_HTTP(false, Status::CODE_500, "上传至COS失败: " + oatpp::String(e.what()));
     //    }
     //    
     //    // 更新文件状态为 completed
-    //    auto updateResult = m_appClient->updateFileStatus("completed", oatpp::String(fileUrl), fileId);
+    //    auto updateResult = m_appPostgresql->updateFileStatus("completed", oatpp::String(fileUrl), fileId);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(updateResult->isSuccess(), Status::CODE_500, updateResult->getErrorMessage());
     //    OATPP_ASSERT_HTTP(updateResult->hasMoreToFetch(), Status::CODE_500, "更新文件状态失败");
@@ -194,7 +201,7 @@ public:
     //    
     //    auto fileSize = std::filesystem::file_size(localPath);
     //    
-    //    auto result = m_appClient->uploadFile(fileName, (oatpp::Int64)fileSize, mimeType, 
+    //    auto result = m_appPostgresql->uploadFile(fileName, (oatpp::Int64)fileSize, mimeType, 
     //        oatpp::String(fileUrl), fileType, std::stoll(currentUserIdHeader->c_str()));
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
@@ -213,7 +220,7 @@ public:
     //}
 
     //oatpp::Vector<oatpp::Object<FileInfoVO>> getFileList(const oatpp::String& currentUserIdHeader) {
-    //    auto result = m_appClient->getFileList(std::stoll(currentUserIdHeader->c_str()));
+    //    auto result = m_appPostgresql->getFileList(std::stoll(currentUserIdHeader->c_str()));
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //    #else
@@ -224,27 +231,22 @@ public:
 
     oatpp::Object<FileDetailInfoVO> getFileDetail(oatpp::String fileUuid) {
 
-        OATPP_ASSERT_HTTP(fileUuid && !fileUuid->empty(), Status::CODE_400, "用户ID不能为空");
-        auto result = m_appClient->getFileIdByUuid(fileUuid);
-#ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
-        OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-#else
-        OATPP_ASSERT_HTTP(result->isSuccess() && result->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-#endif
-        auto fileId = result->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-        auto detailResult = m_appClient->getFileDetailById(fileId);
+        OATPP_ASSERT_HTTP(fileUuid && !fileUuid->empty(), Status::CODE_400, "文件ID不能为空");
+        auto fileId = m_idCache->getFileId(fileUuid);
+        OATPP_ASSERT_HTTP(fileId > 0, Status::CODE_404, "文件不存在");
+        auto detailResult = m_appPostgresql->getFileDetailById(fileId);
         #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(detailResult->isSuccess(), Status::CODE_500, detailResult->getErrorMessage());
-        OATPP_ASSERT_HTTP(detailResult->hasMoreToFetch(), Status::CODE_404, "文件不存在");
-        #else
-        OATPP_ASSERT_HTTP(detailResult->isSuccess() && detailResult->hasMoreToFetch(), Status::CODE_404, "文件不存在");
+        if(!detailResult->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", detailResult->getErrorMessage()->c_str());
+        }
         #endif
+        OATPP_ASSERT_HTTP(detailResult->isSuccess(), Status::CODE_500, "获取文件详情失败");
+        OATPP_ASSERT_HTTP(detailResult->hasMoreToFetch(), Status::CODE_404, "文件不存在");
         return detailResult->fetch<oatpp::Vector<oatpp::Object<FileDetailInfoVO>>>()[0];
     }
 
     //oatpp::Boolean deleteFile(oatpp::Int64 fileId, const oatpp::String& currentUserIdHeader) {
-    //    auto result = m_appClient->getFileDetail(fileId);
+    //    auto result = m_appPostgresql->getFileDetail(fileId);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //    OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_404, "文件不存在");
@@ -261,7 +263,7 @@ public:
     //        m_cosClient->deleteFile(cosObjectName);
     //    }
 
-    //    result = m_appClient->deleteFile(fileId, std::stoll(currentUserIdHeader->c_str()));
+    //    result = m_appPostgresql->deleteFile(fileId, std::stoll(currentUserIdHeader->c_str()));
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //    #else
@@ -272,7 +274,7 @@ public:
 
     //oatpp::Boolean batchDeleteFiles(const oatpp::String& currentUserIdHeader, const oatpp::Object<BatchDeleteFilesRequestDTO>& request) {
     //    for (const auto& fileId : *request->fileIds) {
-    //        auto result = m_appClient->getFileDetail(fileId);
+    //        auto result = m_appPostgresql->getFileDetail(fileId);
     //        #ifdef SQLCHECK
     //        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //        OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_404, "文件不存在");
@@ -289,7 +291,7 @@ public:
     //            m_cosClient->deleteFile(cosObjectName);
     //        }
 
-    //        result = m_appClient->deleteFile(fileId, std::stoll(currentUserIdHeader->c_str()));
+    //        result = m_appPostgresql->deleteFile(fileId, std::stoll(currentUserIdHeader->c_str()));
     //        #ifdef SQLCHECK
     //        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //        #else
@@ -300,7 +302,7 @@ public:
     //}
 
     //oatpp::Vector<oatpp::Object<FileInfoVO>> searchFiles(const oatpp::String& keyword, const oatpp::String& currentUserIdHeader) {
-    //    auto result = m_appClient->searchFiles(keyword, std::stoll(currentUserIdHeader->c_str()));
+    //    auto result = m_appPostgresql->searchFiles(keyword, std::stoll(currentUserIdHeader->c_str()));
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //    #else
@@ -310,7 +312,7 @@ public:
     //}
 
     //oatpp::Object<FileStatisticsVO> getFileStatistics(const oatpp::String& currentUserIdHeader) {
-    //    auto result = m_appClient->getFileStatistics(std::stoll(currentUserIdHeader->c_str()));
+    //    auto result = m_appPostgresql->getFileStatistics(std::stoll(currentUserIdHeader->c_str()));
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //    OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_404, "文件统计信息不存在");

@@ -4,13 +4,13 @@
 #include "../dto/AuthDto.hpp"
 #include "../vo/AuthVo.hpp"
 #include"../dto/GeneralDto.hpp"
-#include "../postgresql/AppClient.hpp"
+#include "../postgresql/AppPostgresql.hpp"
 #include "../../jwt/Appjwt.h"
 
 class AuthService {
     using Status = oatpp::web::protocol::http::Status;
 private:
-    std::shared_ptr<AppClient> m_appClient;
+    std::shared_ptr<AppPostgresql> m_appPostgresql;
     std::shared_ptr<Appjwt> m_jwt;
     std::shared_ptr<AppRedis> m_redis;
     // std::shared_ptr<AppEmail> m_email;
@@ -20,21 +20,22 @@ private:
     }
 
 public:
-    AuthService(const std::shared_ptr<AppClient>& appClient,
+    AuthService(const std::shared_ptr<AppPostgresql>& appClient,
                 const std::shared_ptr<Appjwt>& jwt,
                 const std::shared_ptr<AppRedis>& redis)
-        : m_appClient(appClient), m_jwt(jwt), m_redis(redis) {}
+        : m_appPostgresql(appClient), m_jwt(jwt), m_redis(redis) {}
 
     oatpp::Object<LoginResponseVO> login(const oatpp::Object<LoginRequestDTO>& request) {
         OATPP_ASSERT_HTTP(request->email, Status::CODE_400, "邮箱不能为空");
         OATPP_ASSERT_HTTP(request->password, Status::CODE_400, "密码不能为空");
-        auto userResult = m_appClient->getUserByEmail(request->email);
+        auto userResult = m_appPostgresql->getUserByEmail(request->email);
         #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(userResult->isSuccess(), Status::CODE_500, userResult->getErrorMessage());
-        OATPP_ASSERT_HTTP(userResult->hasMoreToFetch(), Status::CODE_401, "邮箱或密码错误");
-        #else
-        OATPP_ASSERT_HTTP(userResult->isSuccess() && userResult->hasMoreToFetch(), Status::CODE_401, "邮箱或密码错误");
+        if(!userResult->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", userResult->getErrorMessage()->c_str());
+        }
         #endif
+        OATPP_ASSERT_HTTP(userResult->isSuccess(), Status::CODE_500, "查询用户失败");
+        OATPP_ASSERT_HTTP(userResult->hasMoreToFetch(), Status::CODE_401, "邮箱或密码错误");
         auto v_userWithPass = userResult->fetch<oatpp::Vector<oatpp::Object<UserProfileWithPassDTO>>>();
         OATPP_ASSERT_HTTP(v_userWithPass->size() == 1, Status::CODE_500, "Unknown error");
         auto userWithPass = v_userWithPass[0];
@@ -64,13 +65,14 @@ public:
     }
 
     oatpp::Object<LoginResponseVO> signup(const oatpp::Object<RegisterRequestDTO>& request) {
-        auto result = m_appClient->createUser(request->username, request->email, request->phone, request->password);
+        auto result = m_appPostgresql->createUser(request->username, request->email, request->phone, request->password);
         #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, result->getErrorMessage());
-        OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_400, "创建用户失败");
-        #else
-        OATPP_ASSERT_HTTP(result->isSuccess() && result->hasMoreToFetch(), Status::CODE_400, "邮箱错误或已存在");
+        if(!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
         #endif
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "创建用户失败");
+        OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_400, "邮箱错误或已存在");
         auto uuid = result->fetch< oatpp::Vector<oatpp::Object<UuidDTO>>>()[0];
         //auto uuid = result->fetch<oatpp::String>();
         auto user = UserInfoVO::createShared();
@@ -98,13 +100,14 @@ public:
     }
 
     oatpp::Boolean resetPassword(const oatpp::Object<ResetPasswordRequestDTO>& request) {
-        auto userResult = m_appClient->getUserByEmail(request->email);
+        auto userResult = m_appPostgresql->getUserByEmail(request->email);
 #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(userResult->isSuccess(), Status::CODE_500, userResult->getErrorMessage());
-        OATPP_ASSERT_HTTP(userResult->hasMoreToFetch(), Status::CODE_401, "邮箱或密码错误");
-#else
-        OATPP_ASSERT_HTTP(userResult->isSuccess() && userResult->hasMoreToFetch(), Status::CODE_401, "邮箱或密码错误");
+        if(!userResult->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", userResult->getErrorMessage()->c_str());
+        }
 #endif
+        OATPP_ASSERT_HTTP(userResult->isSuccess(), Status::CODE_500, "查询用户失败");
+        OATPP_ASSERT_HTTP(userResult->hasMoreToFetch(), Status::CODE_401, "邮箱或密码错误");
         auto v_userWithPass = userResult->fetch<oatpp::Vector<oatpp::Object<UserProfileWithPassDTO>>>();
         OATPP_ASSERT_HTTP(v_userWithPass->size() == 1, Status::CODE_500, "Unknown error");
         auto userWithPass = v_userWithPass[0];
@@ -113,17 +116,18 @@ public:
             Status::CODE_401, "新密码不能和旧密码相同");
 
 
-        auto result = m_appClient->resetPasswordByEmail(request->email,request->newPassword);
+        auto result = m_appPostgresql->resetPasswordByEmail(request->email,request->newPassword);
         #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, result->getErrorMessage());
-        #else
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "重置密码错误");
+        if(!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
         #endif
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "重置密码失败");
         return true;
     }
 
     //oatpp::Object<UserInfoVO> getCurrentUser(const oatpp::String& userId) {
-    //    auto userCheck = m_appClient->getUserIdByUuid(userId);
+    //    auto userCheck = m_appPostgresql->getUserIdByUuid(userId);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -134,7 +138,7 @@ public:
     //    auto id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
     //    // 获取用户基本信息
-    //    auto userResult = m_appClient->getUserById(id);
+    //    auto userResult = m_appPostgresql->getUserById(id);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(userResult->isSuccess(), Status::CODE_500, userResult->getErrorMessage());
     //    OATPP_ASSERT_HTTP(userResult->hasMoreToFetch(), Status::CODE_404, "用户不存在");
@@ -144,7 +148,7 @@ public:
     //    auto userProfile = userResult->fetch<oatpp::Vector<oatpp::Object<UserProfileVO>>>()[0];
 
     //    // 获取用户状态信息（包含lastSeen）
-    //    auto statusResult = m_appClient->getUserStatus(id);
+    //    auto statusResult = m_appPostgresql->getUserStatus(id);
     //    oatpp::String lastSeen = nullptr;
     //    oatpp::String status = nullptr;
     //    if (statusResult->isSuccess() && statusResult->hasMoreToFetch()) {
@@ -166,7 +170,7 @@ public:
     //}
 
     // oatpp::Boolean logout(const oatpp::String& userId) {
-    //     auto userCheck = m_appClient->getUserIdByUuid(userId);
+    //     auto userCheck = m_appPostgresql->getUserIdByUuid(userId);
     //     #ifdef SQLCHECK
     //     OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //     OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -179,7 +183,7 @@ public:
     // }
 
     //oatpp::Object<UserInfoVO> updateUserInfo(const oatpp::Object<UpdateProfileRequestDTO>& request, const oatpp::String& userId) {
-    //    auto userCheck = m_appClient->getUserIdByUuid(userId);
+    //    auto userCheck = m_appPostgresql->getUserIdByUuid(userId);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -188,7 +192,7 @@ public:
     //    #endif
 
     //    auto id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-    //    auto result = m_appClient->updateUser(id, request->username, request->avatarUrl);
+    //    auto result = m_appPostgresql->updateUser(id, request->username, request->avatarUrl);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //    OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_404, "用户不存在");
@@ -197,7 +201,7 @@ public:
     //    #endif
 
     //    // 获取更新后的用户信息
-    //    auto updatedUser = m_appClient->getUserById(id);
+    //    auto updatedUser = m_appPostgresql->getUserById(id);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(updatedUser->isSuccess(), Status::CODE_500, updatedUser->getErrorMessage());
     //    OATPP_ASSERT_HTTP(updatedUser->hasMoreToFetch(), Status::CODE_404, "用户不存在");
@@ -207,7 +211,7 @@ public:
     //    auto userProfile = updatedUser->fetch<oatpp::Vector<oatpp::Object<UserProfileVO>>>()[0];
 
     //    // 获取用户状态信息（包含lastSeen）
-    //    auto statusResult = m_appClient->getUserStatus(id);
+    //    auto statusResult = m_appPostgresql->getUserStatus(id);
     //    oatpp::String lastSeen = nullptr;
     //    oatpp::String status = nullptr;
     //    if (statusResult->isSuccess() && statusResult->hasMoreToFetch()) {
@@ -234,7 +238,7 @@ public:
     //    OATPP_ASSERT_HTTP(request->newPassword && !request->newPassword->empty(), Status::CODE_400, "新密码不能为空");
     //    OATPP_ASSERT_HTTP(request->oldPassword != request->newPassword, Status::CODE_400, "新密码不能与旧密码相同");
 
-    //    auto userCheck = m_appClient->getUserIdByUuid(userId);
+    //    auto userCheck = m_appPostgresql->getUserIdByUuid(userId);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -245,7 +249,7 @@ public:
     //    auto id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
     //    // 1. 查询用户当前的密码哈希
-    //    auto passwordHashResult = m_appClient->getPasswordHashById(id);
+    //    auto passwordHashResult = m_appPostgresql->getPasswordHashById(id);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(passwordHashResult->isSuccess(), Status::CODE_500, passwordHashResult->getErrorMessage());
     //    OATPP_ASSERT_HTTP(passwordHashResult->hasMoreToFetch(), Status::CODE_404, "用户不存在");
@@ -259,7 +263,7 @@ public:
     //    OATPP_ASSERT_HTTP(isValid, Status::CODE_400, "修改密码失败，旧密码错误");
 
     //    // 3. 验证通过后，更新为新密码
-    //    auto updateResult = m_appClient->changePassword(id, request->newPassword);
+    //    auto updateResult = m_appPostgresql->changePassword(id, request->newPassword);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(updateResult->isSuccess(), Status::CODE_500, updateResult->getErrorMessage());
     //    OATPP_ASSERT_HTTP(updateResult->hasMoreToFetch(), Status::CODE_404, "用户不存在");
@@ -283,7 +287,7 @@ public:
 
         std::string code = generateVerificationCode();
         ;
-        OATPP_ASSERT_HTTP(!m_redis->setVerificationCode(email, code, 300), Status::CODE_500, "服务器发送验证码失败");
+        OATPP_ASSERT_HTTP(m_redis->setVerificationCode(email, code, 300), Status::CODE_500, "服务器发送验证码失败");
         // ||!m_email->sendVerificationCode(code,email)
         return true;
     }

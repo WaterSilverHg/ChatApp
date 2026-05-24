@@ -1,10 +1,5 @@
 #include "HttpApiClient.h"
 #include "UserSession.h"
-#include <QUrlQuery>
-#include <QDebug>
-#include <QFile>
-#include <QFileInfo>
-#include <QByteArray>
 
 HttpApiClient* HttpApiClient::s_instance = nullptr;
 
@@ -145,18 +140,30 @@ void HttpApiClient::onReplyFinished(QNetworkReply* reply)
     else if (url.contains("/api/auth/reset-password")) {
         emit passwordResetSuccess(obj);
     }
-    else if (url.contains("/api/conversations")) {
-        if(url.contains("/read")){
-            emit conversationMarkedRead(true);
-
+    else if (url.contains("/api/conversations/users/") && (url.contains("/mute") || url.contains("/unmute"))) {
+        if (url.contains("/mute") && !url.contains("/unmute")) {
+            emit conversationMuted(true);
+        } else if (url.contains("/unmute")) {
+            emit conversationUnmuted(true);
         }
-        else{
-
-            QJsonArray conversations = doc.isArray() ? doc.array() :
-                                           (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-            emit conversationsReceived(conversations);
+    }
+    else if (url.contains("/api/conversations/groups/") && (url.contains("/mute") || url.contains("/unmute"))) {
+        if (url.contains("/mute") && !url.contains("/unmute")) {
+            emit conversationMuted(true);
+        } else if (url.contains("/unmute")) {
+            emit conversationUnmuted(true);
         }
-
+    }
+    else if (url.contains("/api/conversations/users/") && url.contains("/read")) {
+        emit conversationMarkedRead(true);
+    }
+    else if (url.contains("/api/conversations/groups/") && url.contains("/read")) {
+        emit conversationMarkedRead(true);
+    }
+    else if (url.contains("/api/conversations") && !url.contains("/users/") && !url.contains("/groups/")) {
+        QJsonArray conversations = doc.isArray() ? doc.array() :
+                                      (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
+        emit conversationsReceived(conversations);
     }
     else if (url.contains("/api/friends/requests/sent")) {
         QJsonArray requests = doc.isArray() ? doc.array() :
@@ -178,22 +185,65 @@ void HttpApiClient::onReplyFinished(QNetworkReply* reply)
                               (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
         emit sentGroupRequestsReceived(requests);
     }
-    else if (url.contains("/api/friends/list") && !url.contains("/remark") && !url.contains("/group") && !url.contains("/block") && !url.contains("/unblock")) {
+    else if (url.contains("/api/friends/blocked")) {
+        QJsonArray users = doc.isArray() ? doc.array() :
+                           (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
+        emit blockedUsersReceived(users);
+    }
+    else if (url.contains("/api/friends/list") && !url.contains("/remark") && !url.contains("/group") && !url.contains("/block") && !url.contains("/unblock") && !url.contains("/detail")) {
         QJsonArray friends = doc.isArray() ? doc.array() :
                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
         emit friendsListReceived(friends);
     }
+    else if (url.contains("/api/friends/") && url.contains("/detail")) {
+        QJsonObject friendDetail = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
+        emit friendDetailReceived(friendDetail);
+    }
     else if (url.contains("/api/friends/") && url.contains("/remark")) {
-        emit friendRemarkUpdated(true);
+        if (obj.contains("message") && obj["message"].toString() != "success") {
+            emit errorOccurred(obj["message"].toString(), -1);
+        } else {
+            emit friendRemarkUpdated(true);
+        }
     }
     else if (url.contains("/api/friends/") && url.contains("/group")) {
-        emit friendGroupUpdated(true);
+        if (obj.contains("message") && obj["message"].toString() != "success") {
+            emit errorOccurred(obj["message"].toString(), -1);
+        } else {
+            emit friendGroupUpdated(true);
+        }
     }
     else if (url.contains("/api/friends/block/")) {
-        emit userBlocked(true);
+        if (obj.contains("message") && obj["message"].toString() != "success") {
+            emit errorOccurred(obj["message"].toString(), -1);
+        } else {
+            emit userBlocked(true);
+        }
     }
     else if (url.contains("/api/friends/unblock/")) {
-        emit userUnblocked(true);
+        if (obj.contains("message") && obj["message"].toString() != "success") {
+            emit errorOccurred(obj["message"].toString(), -1);
+        } else {
+            emit userUnblocked(true);
+        }
+    }
+    else if (url.contains("/api/friends/groups") && !url.contains("DELETE")) {
+        if (url.contains("PUT")) {
+            emit friendGroupRenamed(true);
+        } else {
+            QJsonArray groups = doc.isArray() ? doc.array() :
+                                (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
+            emit friendGroupsReceived(groups);
+        }
+    }
+    else if (url.contains("/api/friends/groups") && url.contains("DELETE")) {
+        emit friendGroupDeleted(true);
+    }
+    else if (url.contains("/api/conversations/") && url.contains("/mute") && !url.contains("/unmute")) {
+        emit conversationMuted(true);
+    }
+    else if (url.contains("/api/conversations/") && url.contains("/unmute")) {
+        emit conversationUnmuted(true);
     }
     else if (url.contains("/api/messages/private/") && url.contains("/before")) {
         QJsonArray messages = doc.isArray() ? doc.array() :
@@ -260,7 +310,7 @@ void HttpApiClient::onReplyFinished(QNetworkReply* reply)
     }
     else if (url.contains("/api/users/")) {
         QJsonObject userData = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
-        emit userDetailReceived(userData);
+        emit userInfoReceived(userData);
     }
     else if (url.contains("/api/status") && !url.contains("/batch")) {
         QJsonObject statusData = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
@@ -274,7 +324,10 @@ void HttpApiClient::onReplyFinished(QNetworkReply* reply)
     else if (url.contains("/api/files/record")) {
         QString fileUuid = obj["uuid"].toString();
         
-        if (!fileUuid.isEmpty() && !m_pendingFileData.isEmpty()) {
+        // 从 reply 属性中获取该请求对应的文件数据
+        QByteArray fileData = reply->property("fileData").toByteArray();
+        
+        if (!fileUuid.isEmpty() && !fileData.isEmpty()) {
             QUrl uploadUrl(m_serverUrl + "/api/files/upload");
             QNetworkRequest request(uploadUrl);
             request.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
@@ -282,8 +335,10 @@ void HttpApiClient::onReplyFinished(QNetworkReply* reply)
             request.setRawHeader("Authorization", QString("Bearer %1").arg(UserSession::instance()->token()).toUtf8());
             request.setRawHeader("fileUuid", fileUuid.toUtf8());
 
-            m_nam->post(request, m_pendingFileData);
-            m_pendingFileData.clear();
+            QNetworkReply* uploadReply = m_nam->post(request, fileData);
+            if (uploadReply) {
+                m_pendingReplies.append(uploadReply);
+            }
         }
     }
     else if (url.contains("/api/files/upload")) {
@@ -303,13 +358,13 @@ void HttpApiClient::login(const QString& email, const QString& password)
 }
 
 void HttpApiClient::registerUser(const QString& username, const QString& email,
-    const QString& password, const QString& phone)
+    const QString& password, const QString& verificationCode)
 {
     QJsonObject data;
     data["username"] = username;
     data["email"] = email;
     data["password"] = password;
-    if (!phone.isEmpty()) data["phone"] = phone;
+    if (!verificationCode.isEmpty()) data["verificationCode"] = verificationCode;
     sendHttpRequest("POST", "/api/auth/register", data);
 }
 
@@ -320,13 +375,16 @@ void HttpApiClient::logout()
 
 void HttpApiClient::abortAllRequests()
 {
-    for (QNetworkReply* reply : m_pendingReplies) {
+    // 先收集需要 abort 的 reply（避免在遍历中修改容器）
+    QList<QNetworkReply*> pending = m_pendingReplies;
+    m_pendingReplies.clear();
+
+    for (QNetworkReply* reply : pending) {
         if (reply && reply->isRunning()) {
             reply->abort();
             reply->deleteLater();
         }
     }
-    m_pendingReplies.clear();
 }
 
 void HttpApiClient::resetPassword(const QString& email, const QString& code, const QString& oldPassword, const QString& newPassword)
@@ -356,9 +414,14 @@ void HttpApiClient::getConversations()
     sendAuthenticatedRequest("GET", "/api/conversations", QJsonObject());
 }
 
-void HttpApiClient::markConversationRead(const QString& convid)
+void HttpApiClient::markPrivateConversationRead(const QString& targetUserUuid)
 {
-    sendAuthenticatedRequest("PUT", QString("/api/conversations/%1/read").arg(convid), QJsonObject());
+    sendAuthenticatedRequest("PUT", QString("/api/conversations/users/%1/read").arg(targetUserUuid), QJsonObject());
+}
+
+void HttpApiClient::markGroupConversationRead(const QString& groupUuid)
+{
+    sendAuthenticatedRequest("PUT", QString("/api/conversations/groups/%1/read").arg(groupUuid), QJsonObject());
 }
 
 void HttpApiClient::getSentRequests()
@@ -386,6 +449,11 @@ void HttpApiClient::getFriends()
     sendAuthenticatedRequest("GET", "/api/friends/list", QJsonObject());
 }
 
+void HttpApiClient::getBlockedUsers()
+{
+    sendAuthenticatedRequest("GET", "/api/friends/blocked", QJsonObject());
+}
+
 void HttpApiClient::updateFriendRemark(const QString& friendId, const QString& remark)
 {
     QJsonObject data;
@@ -408,6 +476,55 @@ void HttpApiClient::blockUser(const QString& targetUserId)
 void HttpApiClient::unblockUser(const QString& targetUserId)
 {
     sendAuthenticatedRequest("POST", QString("/api/friends/unblock/%1").arg(targetUserId), QJsonObject());
+}
+
+// ==================== 好友分组管理 ====================
+
+void HttpApiClient::getFriendGroups()
+{
+    sendAuthenticatedRequest("GET", "/api/friends/groups", QJsonObject());
+}
+
+void HttpApiClient::createFriendGroup(const QString& name, const QJsonArray& memberUuids)
+{
+    QJsonObject data;
+    data["name"] = name;
+    if (!memberUuids.isEmpty()) data["memberUuids"] = memberUuids;
+    sendAuthenticatedRequest("POST", "/api/friends/groups", data);
+}
+
+void HttpApiClient::deleteFriendGroup(const QString& groupName)
+{
+    sendAuthenticatedRequest("DELETE", QString("/api/friends/groups/%1").arg(groupName), QJsonObject());
+}
+
+void HttpApiClient::renameFriendGroup(const QString& oldName, const QString& newName)
+{
+    QJsonObject data;
+    data["newName"] = newName;
+    sendAuthenticatedRequest("PUT", QString("/api/friends/groups/%1").arg(oldName), data);
+}
+
+// ==================== 消息免打扰 ====================
+
+void HttpApiClient::mutePrivateConversation(const QString& targetUserUuid)
+{
+    sendAuthenticatedRequest("PUT", QString("/api/conversations/users/%1/mute").arg(targetUserUuid), QJsonObject());
+}
+
+void HttpApiClient::unmutePrivateConversation(const QString& targetUserUuid)
+{
+    sendAuthenticatedRequest("PUT", QString("/api/conversations/users/%1/unmute").arg(targetUserUuid), QJsonObject());
+}
+
+void HttpApiClient::muteGroupConversation(const QString& groupUuid)
+{
+    sendAuthenticatedRequest("PUT", QString("/api/conversations/groups/%1/mute").arg(groupUuid), QJsonObject());
+}
+
+void HttpApiClient::unmuteGroupConversation(const QString& groupUuid)
+{
+    sendAuthenticatedRequest("PUT", QString("/api/conversations/groups/%1/unmute").arg(groupUuid), QJsonObject());
 }
 
 void HttpApiClient::getPrivateMessagesPage(const QString& uid, int page, int size)
@@ -464,6 +581,11 @@ void HttpApiClient::getMultipleStatuses(const QJsonArray& userIds)
     sendAuthenticatedRequest("POST", "/api/status/batch", data);
 }
 
+void HttpApiClient::getFriendDetail(const QString& friendUuid)
+{
+    sendAuthenticatedRequest("GET", QString("/api/friends/%1/detail").arg(friendUuid), QJsonObject());
+}
+
 void HttpApiClient::getUserInfo(const QString& userUuid)
 {
     sendAuthenticatedRequest("GET", QString("/api/users/info/%1").arg(userUuid), QJsonObject());
@@ -471,26 +593,38 @@ void HttpApiClient::getUserInfo(const QString& userUuid)
 
 void HttpApiClient::searchUsers(const QString& keyword)
 {
-    sendAuthenticatedRequest("GET", QString("/api/users/search?keyword=%1").arg(keyword), QJsonObject());
+    QString encoded = QUrl::toPercentEncoding(keyword);
+    sendAuthenticatedRequest("GET", QString("/api/users/search?keyword=%1").arg(encoded), QJsonObject());
 }
 
 void HttpApiClient::searchGroups(const QString& keyword)
 {
-    sendAuthenticatedRequest("GET", QString("/api/groups/search?keyword=%1").arg(keyword), QJsonObject());
+    QString encoded = QUrl::toPercentEncoding(keyword);
+    sendAuthenticatedRequest("GET", QString("/api/groups/search?keyword=%1").arg(encoded), QJsonObject());
 }
 
 void HttpApiClient::uploadAvatarFile(const QString& fileName, const QString& mimeType,
                                qint64 fileSize, const QByteArray& fileData)
 {
-    m_pendingFileData = fileData;
-
     QJsonObject data;
-    //QFileInfo fileInfo(fileName);
     data["filetype"] = "avatar";
     data["mimetype"] = mimeType;
     data["filesize"] = fileSize;
 
-    sendAuthenticatedRequest("POST", "/api/files/record", data);
+    // 直接发送请求，不使用 sendAuthenticatedRequest，以便绑定文件数据到 reply
+    QUrl url(m_serverUrl + "/api/files/record");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("Connection", "close");
+    request.setRawHeader("Authorization", QString("Bearer %1").arg(UserSession::instance()->token()).toUtf8());
+
+    QNetworkReply* reply = m_nam->post(request, QJsonDocument(data).toJson());
+    if (reply) {
+        m_pendingReplies.append(reply);
+        // 将文件数据绑定到 reply 对象，每个请求携带自己的文件数据
+        reply->setProperty("fileData", fileData);
+        // 不需要单独连接信号，m_nam 的 finished 信号已经连接到 onReplyFinished
+    }
 }
 
 QString HttpApiClient::extractUuidFromUrl(const QString& url, const QString& prefix) const

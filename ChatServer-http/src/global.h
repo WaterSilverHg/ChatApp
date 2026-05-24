@@ -4,6 +4,7 @@
 #include "oatpp/core/Types.hpp"
 #include "oatpp/core/macro/codegen.hpp"
 #include <oatpp/core/data/mapping/type/Object.hpp>
+#include <oatpp/core/base/Environment.hpp>
 #include "oatpp/network/Server.hpp"
 #include "oatpp-swagger/Controller.hpp"
 #include "oatpp-websocket/ConnectionHandler.hpp"

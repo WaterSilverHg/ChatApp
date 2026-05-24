@@ -1,8 +1,7 @@
 #ifndef WEBSOCKETCLIENT_H
 #define WEBSOCKETCLIENT_H
 
-#include "global.h"
-#include <functional>
+#include "../global.h"
 
 class WebSocketClient : public QObject
 {

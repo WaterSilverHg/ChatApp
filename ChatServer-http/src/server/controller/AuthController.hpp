@@ -12,21 +12,21 @@ private:
 
 public:
     AuthController(OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
-                   OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient),
+                   OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appPostgresql),
                    OATPP_COMPONENT(std::shared_ptr<Appjwt>, jwt),
                    OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis))
         : oatpp::web::server::api::ApiController(objectMapper),
-          m_authService(std::make_shared<AuthService>(appClient, jwt, redis)) {
+          m_authService(std::make_shared<AuthService>(appPostgresql, jwt, redis)) {
         setDefaultAuthorizationHandler(std::make_shared<AppAuthHandler>());
     }
 
     static std::shared_ptr<AuthController> createShared(
         OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
-        OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient),
+        OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appPostgresql),
         OATPP_COMPONENT(std::shared_ptr<Appjwt>, jwt),
         OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis)
     ) {
-        return std::make_shared<AuthController>(objectMapper, appClient, jwt, redis);
+        return std::make_shared<AuthController>(objectMapper, appPostgresql, jwt, redis);
     }
 
     ENDPOINT_INFO(login) {

@@ -3,7 +3,6 @@
 #include "global.h"
 #include "../dto/UserStatusDto.hpp"
 #include "../vo/UserStatusVO.hpp"
-#include "../vo/FriendVo.hpp"
 #include "../service/UserStatusService.hpp"
 #include "../handler/AppAuthHandler.h"
 
@@ -15,17 +14,21 @@ private:
 
 public:
     UserStatusController(OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
-                     OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient))
+                     OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appPostgresql),
+                     OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis),
+                     OATPP_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache))
         : oatpp::web::server::api::ApiController(objectMapper),
-          m_statusService(std::make_shared<StatusService>(appClient)) {
+          m_statusService(std::make_shared<StatusService>(appPostgresql, redis, uuidIdCache)) {
         setDefaultAuthorizationHandler(std::make_shared<AppAuthHandler>());
     }
 
     static std::shared_ptr<UserStatusController> createShared(
         OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
-        OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient)
+        OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appPostgresql),
+        OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis),
+        OATPP_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache)
     ) {
-        return std::make_shared<UserStatusController>(objectMapper, appClient);
+        return std::make_shared<UserStatusController>(objectMapper, appPostgresql, redis, uuidIdCache);
     }
 
     ENDPOINT_INFO(updateStatus) {
@@ -76,8 +79,8 @@ public:
 
     ENDPOINT_INFO(searchUsers) {
         info->summary = "搜索用户";
-        info->description = "根据用户名搜索用户";
-        info->addResponse<oatpp::Vector<Object<FriendInfoVO>>>(Status::CODE_200, "application/json", "搜索成功");
+        info->description = "根据用户名搜索用户，返回用户信息及好友关系状态";
+        info->addResponse<oatpp::Vector<Object<SearchUserVO>>>(Status::CODE_200, "application/json", "搜索成功");
         info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "用户不存在或已失效");
         info->addResponse<Object<ErrorStatusDto>>(Status::CODE_400, "application/json", "搜索关键词不能为空");
         info->addSecurityRequirement("BearerAuth");

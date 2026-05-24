@@ -5,9 +5,6 @@
 #include "oatpp-websocket/AsyncWebSocket.hpp"
 #include "SharedWebSocketResources.hpp"
 
-#include <chrono>
-#include <thread>
-#include <atomic>
 
 class LightweightAsyncWebSocketListener : public oatpp::websocket::AsyncWebSocket::Listener {
 private:
@@ -102,9 +99,29 @@ public:
                 if (elapsed >= PONG_TIMEOUT.count()) {
                     OATPP_LOGW("WebSocket", "Heartbeat timeout for user %s, closing connection", m_userUuid->c_str());
                     if (m_running) {
-                        m_executor->execute<SendCloseCoroutine>(
-                            socket
-                        );
+                        m_running = false;
+
+                        bool shouldSetOffline = m_sharedResources->webSocket->decrementAndRemoveIfZero(m_userUuid);
+
+                        if (shouldSetOffline) {
+                            try {
+                                auto statusRequest = oatpp::Object<UpdateStatusRequestDTO>::createShared();
+                                statusRequest->status = "offline";
+                                m_sharedResources->statusService->updateStatus(m_userUuid, statusRequest);
+                                OATPP_LOGI("WebSocket", "User %s status set to offline (heartbeat timeout)", m_userUuid->c_str());
+
+                                if (m_sharedResources->redis) {
+                                    m_sharedResources->redis->deleteSession(m_userUuid->c_str());
+                                    OATPP_LOGI("WebSocket", "Session deleted for user %s (heartbeat timeout)", m_userUuid->c_str());
+                                }
+                            } catch (const std::exception& e) {
+                                OATPP_LOGE("WebSocket", "Failed to set user %s status to offline: %s", m_userUuid->c_str(), e.what());
+                            }
+                        } else {
+                            OATPP_LOGI("WebSocket", "User %s has more connections, not setting offline (heartbeat timeout)", m_userUuid->c_str());
+                        }
+
+                        m_executor->execute<SendCloseCoroutine>(socket);
                     }
                     break;
                 }

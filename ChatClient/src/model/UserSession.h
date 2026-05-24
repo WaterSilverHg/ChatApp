@@ -1,7 +1,7 @@
 #ifndef USERSESSION_H
 #define USERSESSION_H
 
-#include "global.h"
+#include "../global.h"
 
 class UserSession : public QObject
 {

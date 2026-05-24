@@ -3,6 +3,7 @@
 #include"../../jwt/Appjwt.h"
 #include"../../redis/AppRedis.hpp"
 #include "../../cos/AppCos.hpp"
+
 // #include"../../smtp/AppEmail.hpp"
 //#include"../../websocket/AppWebSocket.hpp"
 
@@ -51,4 +52,9 @@ public:
 
         return std::make_shared<AppCos>(appId, secretId, secretKey, region, bucketName);
         }());
+
+    /**
+     * Create UuidIdCache component for UUID to ID caching
+     */
+
 };

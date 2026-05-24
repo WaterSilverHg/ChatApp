@@ -14,17 +14,21 @@ private:
 
 public:
     MessageController(OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
-                     OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient))
+                     OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appPostgresql),
+                     OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis),
+                     OATPP_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache))
         : oatpp::web::server::api::ApiController(objectMapper),
-          m_messageService(std::make_shared<MessageService>(appClient)) {
+          m_messageService(std::make_shared<MessageService>(appPostgresql, redis, uuidIdCache)) {
         setDefaultAuthorizationHandler(std::make_shared<AppAuthHandler>());
     }
 
     static std::shared_ptr<MessageController> createShared(
         OATPP_COMPONENT(std::shared_ptr<ObjectMapper>, objectMapper),
-        OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient)
+        OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appPostgresql),
+        OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis),
+        OATPP_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache)
     ) {
-        return std::make_shared<MessageController>(objectMapper, appClient);
+        return std::make_shared<MessageController>(objectMapper, appPostgresql, redis, uuidIdCache);
     }
 
     //ENDPOINT_INFO(getPrivateMessages) {

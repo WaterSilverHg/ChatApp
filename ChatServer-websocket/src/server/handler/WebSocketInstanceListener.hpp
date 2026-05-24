@@ -3,7 +3,7 @@
 #include "global.h"
 #include "LightweightAsyncWebSocketListener.hpp"
 #include "SharedWebSocketResources.hpp"
-#include "../postgresql/AppClient.hpp"
+#include "../postgresql/AppPostgresql.hpp"
 #include "../../jwt/Appjwt.h"
 #include "../../websocket/AppWebSocket.hpp"
 

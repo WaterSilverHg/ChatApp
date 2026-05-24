@@ -1,10 +1,11 @@
 #pragma once
 
-#include "global.h"
+#include "../global.h"
 #include "ui_ChatMainPage.h"
-#include "HttpApiClient.h"
-#include "WebSocketClient.h"
-#include <QSharedPointer>
+#include "../model/HttpApiClient.h"
+#include "../model/WebSocketClient.h"
+#include "../model/AsyncAvatarLoader.h"
+#include "../model/MessageCacheManager.h"
 
 class ChatMainPage : public QWidget
 {
@@ -13,6 +14,7 @@ class ChatMainPage : public QWidget
 public:
     ChatMainPage(const QString& username, const QString& token, const QJsonObject& userInfo, QWidget *parent = nullptr);
     ~ChatMainPage();
+    void reinitialize(const QString& username, const QString& token, const QJsonObject& userInfo);
 
 signals:
     void logoutToLogin();
@@ -37,6 +39,7 @@ private slots:
 
     void onReceivedRequestsReceived(const QJsonArray& requests);
     void onReceivedGroupRequestsReceived(const QJsonArray& requests);
+    void onFriendDetailReceived(const QJsonObject& friendDetail);
     void onUserDetailReceived(const QJsonObject& user);
     void onGroupDetailReceived(const QJsonObject& group);
     void onUsersSearched(const QJsonArray& users);
@@ -45,6 +48,11 @@ private slots:
     void onNewPrivateMessageReceived(const QJsonObject& message);
     void onNewGroupMessageReceived(const QJsonObject& message);
     void onFileUploaded(const QJsonObject& fileInfo);
+    void onFriendsListReceived(const QJsonArray& friends);
+    void onBlockedUsersReceived(const QJsonArray& users);
+    void onMyGroupsListReceived(const QJsonArray& groups);
+    void onAvatarLoaded(const QString& cacheKey, QPixmap pixmap);
+    void onCacheLoadFinished(const QString& convUuid, QJsonArray messages);
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -66,7 +74,29 @@ private:
     void updateConversationUnreadCount(const QString& convUuid, int delta);
     void updateConversationItemDisplay(int row);
     void markCurrentConversationAsRead();
-    QPixmap downloadAvatar(const QString& avatarUrl);
+    QPixmap getOrPlaceholderAvatar(const QString& avatarUrl, const QString& name, const QSize& size);
+    void loadAvatarAsync(QLabel* label, const QString& url, const QString& name, const QSize& size);
+
+    // ---- 用户名缓存（UUID → 用户名，3 分钟 TTL）----
+    struct UserNameEntry {
+        QString name;
+        qint64 fetchedAt = 0;
+    };
+    QHash<QString, UserNameEntry> m_userNameCache;
+    QSet<QString> m_pendingNameLookups;  // 防止并发重复请求
+    QString resolveUsername(const QString& userUuid);
+
+    // ---- 备注缓存（UUID → 备注名）----
+    QHash<QString, QString> m_remarkCache;
+    QString resolveDisplayName(const QString& userUuid, const QString& originalName);
+    void fetchAndCacheUsername(const QString& uuid);
+
+    // ---- 消息免打扰设置（UUID → 是否免打扰）----
+    QSet<QString> m_mutedConversations;
+    bool isMuted(const QString& convUuid) const;
+    void setMuted(const QString& convUuid, bool muted);
+
+    // ---- 消息缓存（已迁移到 MessageCacheManager，以下方法保留兼容）----
     void saveMessagesToCache(const QString& convUuid, const QJsonArray& messages);
     QJsonArray loadMessagesFromCache(const QString& convUuid);
     bool hasLocalCache(const QString& convUuid);
@@ -91,12 +121,35 @@ private:
     QMap<QString, int> m_unreadCounts;
     HttpApiClient* m_httpClient;
     WebSocketClient* m_wsClient;
+    AsyncAvatarLoader* m_avatarLoader;
+    MessageCacheManager* m_cacheManager;
     
     QListWidget* m_searchUserResultList = nullptr;
     QListWidget* m_searchGroupResultList = nullptr;
     bool m_isLoadingOlderMessages = false;
-    bool m_hasMoreMessages = true;
     QSharedPointer<QJsonArray> m_pendingFriendRequests;
     QSharedPointer<QJsonArray> m_pendingGroupRequests;
     QDialog* m_requestsDialog = nullptr;
+    int m_pendingRequestResponses = 0;
+
+    // ---- 查看信息时区分好友/非好友 ----
+    bool m_pendingInfoIsFriend = false;
+    QString m_pendingInfoTargetId;
+    bool m_pendingInfoIsMuted = false;
+
+    // ---- 左侧边栏：聊天 / 好友 / 群聊 / 拉黑 ----
+    enum SidebarTab { TabChats, TabFriends, TabGroups, TabBlocked };
+    SidebarTab m_sidebarTab = TabChats;
+    QJsonArray m_friendsData;
+    QJsonArray m_groupsData;
+    QJsonArray m_blockedData;
+
+    void setupSidebar();
+    void switchSidebarTab(SidebarTab tab);
+    void populateConversationsTab();
+    void populateFriendsTab();
+    void populateGroupsTab();
+    void populateBlockedTab();
+    void startChatWith(const QString& targetUuid, const QString& displayName, const QString& convType);
+    void showGroupManagementDialog();
 };

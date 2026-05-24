@@ -14,9 +14,9 @@
 
 #include OATPP_CODEGEN_BEGIN(DbClient) 
 
-class AppClient : public oatpp::orm::DbClient {
+class AppPostgresql : public oatpp::orm::DbClient {
 public:
-    AppClient(const std::shared_ptr<oatpp::orm::Executor>& executor)
+    AppPostgresql(const std::shared_ptr<oatpp::orm::Executor>& executor)
         : oatpp::orm::DbClient(executor) {}
 
     // ==================== 用户相关 ====================
@@ -81,15 +81,15 @@ public:
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::Int64, friendId))
 
-    // 检查好友请求是否已存在
+    // 检查好友请求是否已存在（返回 UUID）
     QUERY(checkFriendRequestExists,
-          "SELECT id FROM friend_requests WHERE (from_user_id = :fromUserId AND to_user_id = :toUserId) OR (from_user_id = :toUserId AND to_user_id = :fromUserId);",
+          "SELECT CAST(uuid AS VARCHAR) AS uuid FROM friend_requests WHERE (from_user_id = :fromUserId AND to_user_id = :toUserId) OR (from_user_id = :toUserId AND to_user_id = :fromUserId);",
           PARAM(oatpp::Int64, fromUserId),
           PARAM(oatpp::Int64, toUserId))
 
-    // 更新好友请求状态为pending
+    // 重新发送好友请求 —— 仅当请求被拒绝/取消时才重置为 pending，已 pending 或已接受的跳过
     QUERY(updateFriendRequestToPending,
-          "UPDATE friend_requests SET status = 'pending', message = :message, updated_at = NOW() WHERE (from_user_id = :fromUserId AND to_user_id = :toUserId) OR (from_user_id = :toUserId AND to_user_id = :fromUserId) RETURNING CAST(uuid AS VARCHAR) AS uuid;",
+          "UPDATE friend_requests SET status = 'pending', message = :message, updated_at = NOW() WHERE ((from_user_id = :fromUserId AND to_user_id = :toUserId) OR (from_user_id = :toUserId AND to_user_id = :fromUserId)) AND status IN ('rejected', 'canceled') RETURNING CAST(uuid AS VARCHAR) AS uuid;",
           PARAM(oatpp::Int64, fromUserId),
           PARAM(oatpp::Int64, toUserId),
           PARAM(oatpp::String, message))
@@ -401,6 +401,19 @@ QUERY(sendPrivateMessage,
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::String, role))
 
+    // 检查群聊请求是否已存在
+    QUERY(checkGroupRequestExists,
+        "SELECT CAST(uuid AS VARCHAR) AS uuid, status FROM group_requests WHERE group_id = :groupId AND requester_id = :requesterId;",
+        PARAM(oatpp::Int64, groupId),
+        PARAM(oatpp::Int64, requesterId))
+
+    // 重新发送群聊请求 —— 仅当请求被拒绝/取消时才重置为 pending
+    QUERY(updateGroupRequestToPending,
+        "UPDATE group_requests SET status = 'pending', message = :message, updated_at = NOW() WHERE group_id = :groupId AND requester_id = :requesterId AND status IN ('rejected', 'canceled') RETURNING CAST(uuid AS VARCHAR) AS uuid;",
+        PARAM(oatpp::Int64, groupId),
+        PARAM(oatpp::Int64, requesterId),
+        PARAM(oatpp::String, message))
+
         // 发送群聊请求
         QUERY(sendGroupRequest,
             "INSERT INTO group_requests (group_id, requester_id, message) VALUES (:groupId, :requesterId, :message);",
@@ -691,6 +704,44 @@ QUERY(sendPrivateMessage,
         "WHERE id = :conversationId AND user_id = :userId;",
         PARAM(oatpp::Int64, conversationId),
         PARAM(oatpp::Int64, userId))
+
+    // 标记会话已读（私聊）
+    QUERY(markPrivateConversationRead,
+        "UPDATE conversations SET last_read_time = CURRENT_TIMESTAMP, unread_count = 0 "
+        "WHERE user_id = :userId AND target_user_id = :targetUserId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetUserId))
+
+    // 标记会话已读（群聊）
+    QUERY(markGroupConversationRead,
+        "UPDATE conversations SET last_read_time = CURRENT_TIMESTAMP, unread_count = 0 "
+        "WHERE user_id = :userId AND target_group_id = :targetGroupId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetGroupId))
+
+    // 消息免打扰（私聊）
+    QUERY(mutePrivateConversation,
+        "UPDATE conversations SET is_muted = true WHERE user_id = :userId AND target_user_id = :targetUserId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetUserId))
+
+    // 消息免打扰（群聊）
+    QUERY(muteGroupConversation,
+        "UPDATE conversations SET is_muted = true WHERE user_id = :userId AND target_group_id = :targetGroupId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetGroupId))
+
+    // 取消消息免打扰（私聊）
+    QUERY(unmutePrivateConversation,
+        "UPDATE conversations SET is_muted = false WHERE user_id = :userId AND target_user_id = :targetUserId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetUserId))
+
+    // 取消消息免打扰（群聊）
+    QUERY(unmuteGroupConversation,
+        "UPDATE conversations SET is_muted = false WHERE user_id = :userId AND target_group_id = :targetGroupId;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int64, targetGroupId))
 
     // 获取会话成员
     //QUERY(getConversationMembers, 

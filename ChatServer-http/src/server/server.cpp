@@ -16,8 +16,8 @@ static void run() {
 
 	/* Register Components in scope of run() method */
 	OtherComponent othercomponent;
-	AppComponent appcomponent;
 	SqlComponent sqlcomponent;
+	AppComponent appcomponent;
 
 	//components.addSecurityScheme("api_key",
 	//	oatpp::swagger::SecuritySchemeInfo{ "apiKey", "query", "api_key" });

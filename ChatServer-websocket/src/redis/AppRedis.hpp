@@ -11,11 +11,11 @@ public:
 			handle = nullptr;
 		}
 	}
-	
+
 	// 禁止拷贝构造和赋值
 	AppRedis(const AppRedis&) = delete;
 	AppRedis& operator=(const AppRedis&) = delete;
-	
+
 	// 允许移动构造和赋值
 	AppRedis(AppRedis&& other) noexcept : handle(other.handle) {
 		other.handle = nullptr;
@@ -28,7 +28,7 @@ public:
 		}
 		return *this;
 	}
-	
+
 	bool initRedis(const char* url) {
 		try {
 			handle = new sw::redis::Redis(url);
@@ -43,7 +43,7 @@ public:
 		return handle;
 	}
 
-	// 创建会话（存储 sessionId）
+	// 创建会话（存储sessionId）
 	bool createSession(const std::string& userUuid, const std::string& sessionId, int expireSeconds = 3600) {
 		try {
 			std::string key = "session:" + userUuid;
@@ -56,7 +56,7 @@ public:
 		}
 	}
 
-	// 验证会话（检查 sessionId 是否存在）
+	// 验证会话（检查sessionId是否存在）
 	bool validateSession(const std::string& userUuid, const std::string& sessionId) {
 		try {
 			std::string key = "session:" + userUuid;
@@ -77,21 +77,6 @@ public:
 		} catch (const sw::redis::Error& e) {
 			std::cerr << "Error deleting session: " << e.what() << std::endl;
 			return false;
-		}
-	}
-
-	// 获取当前 sessionId
-	std::string getSession(const std::string& userUuid) {
-		try {
-			std::string key = "session:" + userUuid;
-			auto sessionId = handle->get(key);
-			if (sessionId) {
-				return *sessionId;
-			}
-			return "";
-		} catch (const sw::redis::Error& e) {
-			std::cerr << "Error getting session: " << e.what() << std::endl;
-			return "";
 		}
 	}
 
@@ -144,5 +129,52 @@ public:
 			std::cerr << "Error checking verification code existence: " << e.what() << std::endl;
 			return false;
 		}
+	}
+
+	// 短期去重 - 尝试创建去重键
+	// 返回 true 表示是第一次请求，返回 false 表示重复请求
+	bool tryAcquireDedupLock(const std::string& userUuid, const std::string& action, 
+							  const std::string& targetUuid = "", const std::string& contentHash = "",
+							  int ttlSeconds = 1) {
+		try {
+			std::string key = buildDedupKey(userUuid, action, targetUuid, contentHash);
+			// SET NX EX: 只有键不存在时才设置，设置成功后自动过期
+			auto result = handle->set(key, "1",
+                    std::chrono::seconds(ttlSeconds),
+                    sw::redis::UpdateType::NOT_EXIST);
+			return result;
+		} catch (const sw::redis::Error& e) {
+			std::cerr << "Error acquiring dedup lock: " << e.what() << std::endl;
+			return false;
+		}
+	}
+
+	// 释放去重键（可选，通常让其自动过期）
+	bool releaseDedupLock(const std::string& userUuid, const std::string& action, 
+						  const std::string& targetUuid = "", const std::string& contentHash = "") {
+		try {
+			std::string key = buildDedupKey(userUuid, action, targetUuid, contentHash);
+			handle->del(key);
+			return true;
+		} catch (const sw::redis::Error& e) {
+			std::cerr << "Error releasing dedup lock: " << e.what() << std::endl;
+			return false;
+		}
+	}
+
+private:
+	// 构建去重键
+	std::string buildDedupKey(const std::string& userUuid, const std::string& action, 
+							  const std::string& targetUuid, const std::string& contentHash) {
+		std::string key = "dedup:" + userUuid + ":" + action;
+		if (!targetUuid.empty()) {
+			key += ":" + targetUuid;
+		} else {
+			key += ":_";
+		}
+		if (!contentHash.empty()) {
+			key += ":" + contentHash;
+		}
+		return key;
 	}
 };

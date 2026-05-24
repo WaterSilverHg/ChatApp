@@ -5,7 +5,7 @@
 #include "../../websocket/AppWebSocket.hpp"
 #include "../handler/SharedWebSocketResources.hpp"
 #include "../handler/WebSocketInstanceListener.hpp"
-#include "../postgresql/AppClient.hpp"
+#include "../postgresql/AppPostgresql.hpp"
 #include "../../jwt/Appjwt.h"
 
 /**
@@ -14,6 +14,11 @@
  */
 class AppComponent {
 public:
+    OATPP_CREATE_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache)([] {
+        OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis);
+        OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, myDatabaseClient);
+        return std::make_shared<UuidIdCache>(redis, myDatabaseClient);
+        }());
     /*
      *  Create ObjectMapper component to serialize/deserialize DTOs in Contoller's API
      */
@@ -106,13 +111,14 @@ public:
      *  Create SharedWebSocketResources component
      */
     OATPP_CREATE_COMPONENT(std::shared_ptr<SharedWebSocketResources>, sharedWebSocketResources)([] {
-        OATPP_COMPONENT(std::shared_ptr<AppClient>, appClient);
+        OATPP_COMPONENT(std::shared_ptr<AppPostgresql>, appClient);
         OATPP_COMPONENT(std::shared_ptr<Appjwt>, jwt);
         OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis);
         OATPP_COMPONENT(std::shared_ptr<AppWebSocket>, webSocket);
         OATPP_COMPONENT(std::shared_ptr<oatpp::data::mapping::ObjectMapper>, objectMapper);
+        OATPP_COMPONENT(std::shared_ptr<UuidIdCache>, uuidIdCache);
         
-        return std::make_shared<SharedWebSocketResources>(appClient, jwt, redis, webSocket, objectMapper);
+        return std::make_shared<SharedWebSocketResources>(appClient, jwt, redis, webSocket, objectMapper, uuidIdCache);
         }());
 
     /**

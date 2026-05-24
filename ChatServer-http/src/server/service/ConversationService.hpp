@@ -3,38 +3,40 @@
 #include "global.h"
 #include "../dto/ConversationDto.hpp"
 #include "../vo/ConversationVo.hpp"
-#include "../postgresql/AppClient.hpp"
+#include "../postgresql/AppPostgresql.hpp"
+#include "../../redis/AppRedis.hpp"
+#include "../../tool/UuidIdCache.hpp"
 
 class ConversationService {
 private:
-    std::shared_ptr<AppClient> m_appClient;
+    std::shared_ptr<AppPostgresql> m_appPostgresql;
+    std::shared_ptr<AppRedis> m_redis;
+    std::shared_ptr<UuidIdCache> m_idCache;
     using Status = oatpp::web::protocol::http::Status;
 public:
-    ConversationService(const std::shared_ptr<AppClient>& appClient) : m_appClient(appClient) {}
+    ConversationService(const std::shared_ptr<AppPostgresql>& appClient, 
+                        const std::shared_ptr<AppRedis>& redis,
+                        const std::shared_ptr<UuidIdCache>& idCache)
+        : m_appPostgresql(appClient), m_redis(redis), m_idCache(idCache) {}
 
     oatpp::Vector<oatpp::Object<ConversationVO>> getConversations(const oatpp::String& currentUserIdHeader) {
         OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
-        auto result = m_appClient->getUserIdByUuid(currentUserIdHeader);
-        #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
-        OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #else
-        OATPP_ASSERT_HTTP(result->isSuccess() && result->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #endif
-        auto id = result->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
+        auto id = m_idCache->getUserId(currentUserIdHeader);
+        OATPP_ASSERT_HTTP(id > 0, Status::CODE_401, "用户不存在或已失效");
 
-        result = m_appClient->getConversations(id);
+        auto result = m_appPostgresql->getConversations(id);
         #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
-        #else
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取会话列表失败");
+        if(!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
         #endif
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取会话列表失败");
         return result->fetch<oatpp::Vector<oatpp::Object<ConversationVO>>>();
     }
 
     //oatpp::Object<ConversationDetailVO> getConversationDetail(const oatpp::String& userUuid,const oatpp::String& convUuid) {
     //    OATPP_ASSERT_HTTP(convUuid && !convUuid->empty(), Status::CODE_400, "会话ID不能为空");
-    //    auto convCheck = m_appClient->getConversationId(userUuid,convUuid);
+    //    auto convCheck = m_appPostgresql->getConversationId(userUuid,convUuid);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(convCheck->isSuccess(), Status::CODE_500, convCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(convCheck->hasMoreToFetch(), Status::CODE_404, "会话不存在");
@@ -43,7 +45,7 @@ public:
     //    #endif
     //    auto conv_id = convCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //    auto result = m_appClient->getConversationDetail(conv_id);
+    //    auto result = m_appPostgresql->getConversationDetail(conv_id);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_404, result->getErrorMessage());
     //    OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_404, "会话不存在");
@@ -57,7 +59,7 @@ public:
     //    OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
     //    OATPP_ASSERT_HTTP(request, Status::CODE_400, "请求参数不能为空");
     //    OATPP_ASSERT_HTTP(request->type && !request->type->empty(), Status::CODE_400, "会话类型不能为空");
-    //    auto result = m_appClient->getUserIdByUuid(currentUserIdHeader);
+    //    auto result = m_appPostgresql->getUserIdByUuid(currentUserIdHeader);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
     //    OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -69,7 +71,7 @@ public:
     //    if (request->type == "private") {
     //        OATPP_ASSERT_HTTP(request->targetUserId && !request->targetUserId->empty(), Status::CODE_400, "私聊会话缺少目标用户ID");
 
-    //        auto userCheck = m_appClient->getUserIdByUuid(request->targetUserId);
+    //        auto userCheck = m_appPostgresql->getUserIdByUuid(request->targetUserId);
     //        #ifdef SQLCHECK
     //        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_404, "目标用户不存在");
     //        #else
@@ -79,7 +81,7 @@ public:
 
     //        OATPP_ASSERT_HTTP(currentUserId != target_id, Status::CODE_400, "不能与自己创建会话");
 
-    //        auto createResult = m_appClient->createPrivateConversation(currentUserId, target_id);
+    //        auto createResult = m_appPostgresql->createPrivateConversation(currentUserId, target_id);
     //        #ifdef SQLCHECK
     //        OATPP_ASSERT_HTTP(createResult->isSuccess(), Status::CODE_500, "创建会话失败");
     //        OATPP_ASSERT_HTTP(createResult->hasMoreToFetch(), Status::CODE_500, "创建会话失败");
@@ -91,7 +93,7 @@ public:
     //    } else if (request->type == "group") {
     //        OATPP_ASSERT_HTTP(request->groupId && !request->groupId->empty(), Status::CODE_400, "群聊会话缺少群组ID");
 
-    //        auto groupCheck = m_appClient->getGroupIdByUuid(request->groupId);
+    //        auto groupCheck = m_appPostgresql->getGroupIdByUuid(request->groupId);
     //        #ifdef SQLCHECK
     //        OATPP_ASSERT_HTTP(groupCheck->isSuccess() && groupCheck->hasMoreToFetch(), Status::CODE_404, "群组不存在");
     //        #else
@@ -99,7 +101,7 @@ public:
     //        #endif
     //        auto group_id = groupCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //        auto membersResult = m_appClient->getGroupMembers(group_id);
+    //        auto membersResult = m_appPostgresql->getGroupMembers(group_id);
     //        #ifdef SQLCHECK
     //        OATPP_ASSERT_HTTP(membersResult->isSuccess(), Status::CODE_500, "获取群组成员失败");
     //        #else
@@ -111,7 +113,7 @@ public:
 
     //        oatpp::Vector<oatpp::Object<ConversationVO>> createdConversations = oatpp::Vector<oatpp::Object<ConversationVO>>::createShared();
     //        for (const auto& memberId : *memberIds) {
-    //            auto convResult = m_appClient->createGroupConversation(memberId, group_id);
+    //            auto convResult = m_appPostgresql->createGroupConversation(memberId, group_id);
     //            if (convResult->isSuccess()) {
     //                auto conversation = convResult->fetch<oatpp::Object<ConversationVO>>();
     //                if (conversation) {
@@ -131,7 +133,7 @@ public:
     //oatpp::Object<ConversationVO> updateConversation(const oatpp::String& convUuid, const oatpp::Object<UpdateConversationRequestDTO>& request) {
     //    OATPP_ASSERT_HTTP(convUuid && !convUuid->empty(), Status::CODE_400, "会话ID不能为空");
     //    OATPP_ASSERT_HTTP(request, Status::CODE_400, "请求参数不能为空");
-    //    auto groupCheck = m_appClient->getGroupIdByUuid(convUuid);
+    //    auto groupCheck = m_appPostgresql->getGroupIdByUuid(convUuid);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(groupCheck->isSuccess(), Status::CODE_500, groupCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(groupCheck->hasMoreToFetch(), Status::CODE_404, "会话不存在");
@@ -140,7 +142,7 @@ public:
     //    #endif
     //    auto group_id = groupCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //    auto result = m_appClient->updateConversation(group_id, request->name, request->avatarUrl);
+    //    auto result = m_appPostgresql->updateConversation(group_id, request->name, request->avatarUrl);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "更新会话失败");
     //    OATPP_ASSERT_HTTP(result->hasMoreToFetch(), Status::CODE_404, "会话不存在");
@@ -148,7 +150,7 @@ public:
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "更新会话失败");
     //    #endif
 
-    //    auto updatedConversation = m_appClient->getConversationDetail(group_id);
+    //    auto updatedConversation = m_appPostgresql->getConversationDetail(group_id);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(updatedConversation->isSuccess(), Status::CODE_404, "会话不存在");
     //    OATPP_ASSERT_HTTP(updatedConversation->hasMoreToFetch(), Status::CODE_404, "会话不存在");
@@ -161,7 +163,7 @@ public:
 
     //oatpp::Boolean deleteConversation(const oatpp::String& convUuid) {
     //    OATPP_ASSERT_HTTP(convUuid && !convUuid->empty(), Status::CODE_400, "会话ID不能为空");
-    //    auto convCheck = m_appClient->getConversationIdByUuid(convUuid);
+    //    auto convCheck = m_appPostgresql->getConversationIdByUuid(convUuid);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(convCheck->isSuccess(), Status::CODE_500, convCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(convCheck->hasMoreToFetch(), Status::CODE_404, "会话不存在");
@@ -170,7 +172,7 @@ public:
     //    #endif
     //    auto conv_id = convCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //    auto result = m_appClient->deleteConversation(conv_id);
+    //    auto result = m_appPostgresql->deleteConversation(conv_id);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "删除会话失败");
     //    #else
@@ -179,60 +181,130 @@ public:
     //    return true;
     //}
 
-    oatpp::Boolean markConversationRead(const oatpp::String& currentUserIdHeader, const oatpp::String& convUuid) {
+    oatpp::Boolean markPrivateConversationRead(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid) {
         OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
-        OATPP_ASSERT_HTTP(convUuid && !convUuid->empty(), Status::CODE_400, "会话ID不能为空");
+        OATPP_ASSERT_HTTP(targetUserUuid && !targetUserUuid->empty(), Status::CODE_400, "目标用户ID不能为空");
 
-        auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        OATPP_ASSERT_HTTP(userId > 0, Status::CODE_401, "用户不存在或已失效");
+
+        auto targetUserId = m_idCache->getUserId(targetUserUuid);
+        OATPP_ASSERT_HTTP(targetUserId > 0, Status::CODE_404, "目标用户不存在");
+
+        auto result = m_appPostgresql->markPrivateConversationRead(userId, targetUserId);
         #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
-        OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #else
-        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
-        #endif
-        auto userId = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-
-        // 先尝试查询是否为私聊会话（convUuid是对端用户的uuid）
-        auto targetUserResult = m_appClient->getUserIdByUuid(convUuid);
-        oatpp::Int64 targetId = -1;
-        bool isUser = false;
-        
-        if (targetUserResult->isSuccess() && targetUserResult->hasMoreToFetch()) {
-            targetId = targetUserResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-            isUser = true;
-        } else {
-            // 尝试查询是否为群聊会话（convUuid是群聊的uuid）
-            auto targetGroupResult = m_appClient->getGroupIdByUuid(convUuid);
-            if (targetGroupResult->isSuccess() && targetGroupResult->hasMoreToFetch()) {
-                targetId = targetGroupResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-                isUser = false;
-            } else {
-                OATPP_ASSERT_HTTP(false, Status::CODE_404, "会话不存在");
-            }
+        if(!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
         }
-
-        auto convIdResult = m_appClient->getConversationId(userId, targetId);
-        #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(convIdResult->isSuccess(), Status::CODE_500, convIdResult->getErrorMessage());
-        OATPP_ASSERT_HTTP(convIdResult->hasMoreToFetch(), Status::CODE_404, "会话不存在");
-        #else
-        OATPP_ASSERT_HTTP(convIdResult->isSuccess() && convIdResult->hasMoreToFetch(), Status::CODE_404, "会话不存在");
         #endif
-        auto conversationId = convIdResult->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-
-        auto result = m_appClient->markConversationRead(conversationId, userId);
-        #ifdef SQLCHECK
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, result->getErrorMessage());
-        #else
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "标记已读失败");
+        return true;
+    }
+
+    oatpp::Boolean markGroupConversationRead(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid) {
+        OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+        OATPP_ASSERT_HTTP(groupUuid && !groupUuid->empty(), Status::CODE_400, "群组ID不能为空");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        OATPP_ASSERT_HTTP(userId > 0, Status::CODE_401, "用户不存在或已失效");
+
+        auto groupId = m_idCache->getGroupId(groupUuid);
+        OATPP_ASSERT_HTTP(groupId > 0, Status::CODE_404, "群组不存在");
+
+        auto result = m_appPostgresql->markGroupConversationRead(userId, groupId);
+        #ifdef SQLCHECK
+        if(!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
         #endif
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "标记已读失败");
+        return true;
+    }
+
+    oatpp::Boolean mutePrivateConversation(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid) {
+        OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+        OATPP_ASSERT_HTTP(targetUserUuid && !targetUserUuid->empty(), Status::CODE_400, "目标用户ID不能为空");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        OATPP_ASSERT_HTTP(userId > 0, Status::CODE_401, "用户不存在或已失效");
+
+        auto targetUserId = m_idCache->getUserId(targetUserUuid);
+        OATPP_ASSERT_HTTP(targetUserId > 0, Status::CODE_404, "目标用户不存在");
+
+        auto result = m_appPostgresql->mutePrivateConversation(userId, targetUserId);
+        #ifdef SQLCHECK
+        if(!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
+        #endif
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "设置免打扰失败");
+        return true;
+    }
+
+    oatpp::Boolean muteGroupConversation(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid) {
+        OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+        OATPP_ASSERT_HTTP(groupUuid && !groupUuid->empty(), Status::CODE_400, "群组ID不能为空");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        OATPP_ASSERT_HTTP(userId > 0, Status::CODE_401, "用户不存在或已失效");
+
+        auto groupId = m_idCache->getGroupId(groupUuid);
+        OATPP_ASSERT_HTTP(groupId > 0, Status::CODE_404, "群组不存在");
+
+        auto result = m_appPostgresql->muteGroupConversation(userId, groupId);
+        #ifdef SQLCHECK
+        if(!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
+        #endif
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "设置免打扰失败");
+        return true;
+    }
+
+    oatpp::Boolean unmutePrivateConversation(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid) {
+        OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+        OATPP_ASSERT_HTTP(targetUserUuid && !targetUserUuid->empty(), Status::CODE_400, "目标用户ID不能为空");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        OATPP_ASSERT_HTTP(userId > 0, Status::CODE_401, "用户不存在或已失效");
+
+        auto targetUserId = m_idCache->getUserId(targetUserUuid);
+        OATPP_ASSERT_HTTP(targetUserId > 0, Status::CODE_404, "目标用户不存在");
+
+        auto result = m_appPostgresql->unmutePrivateConversation(userId, targetUserId);
+        #ifdef SQLCHECK
+        if(!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
+        #endif
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "取消免打扰失败");
+        return true;
+    }
+
+    oatpp::Boolean unmuteGroupConversation(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid) {
+        OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+        OATPP_ASSERT_HTTP(groupUuid && !groupUuid->empty(), Status::CODE_400, "群组ID不能为空");
+
+        auto userId = m_idCache->getUserId(currentUserIdHeader);
+        OATPP_ASSERT_HTTP(userId > 0, Status::CODE_401, "用户不存在或已失效");
+
+        auto groupId = m_idCache->getGroupId(groupUuid);
+        OATPP_ASSERT_HTTP(groupId > 0, Status::CODE_404, "群组不存在");
+
+        auto result = m_appPostgresql->unmuteGroupConversation(userId, groupId);
+        #ifdef SQLCHECK
+        if(!result->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+        }
+        #endif
+        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "取消免打扰失败");
         return true;
     }
 
     //oatpp::Vector<oatpp::Object<ConversationMemberVO>> getConversationMembers(const oatpp::String& currentUserIdHeader, const oatpp::String& convUuid) {
     //    OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
     //    OATPP_ASSERT_HTTP(convUuid && !convUuid->empty(), Status::CODE_400, "会话ID不能为空");
-    //    auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+    //    auto userCheck = m_appPostgresql->getUserIdByUuid(currentUserIdHeader);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -241,7 +313,7 @@ public:
     //    #endif
     //    auto user_id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //    auto convCheck = m_appClient->getConversationIdByUuid(convUuid);
+    //    auto convCheck = m_appPostgresql->getConversationIdByUuid(convUuid);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(convCheck->isSuccess(), Status::CODE_500, convCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(convCheck->hasMoreToFetch(), Status::CODE_404, "会话不存在");
@@ -250,7 +322,7 @@ public:
     //    #endif
     //    auto conv_id = convCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //    auto result = m_appClient->getConversationMembers(conv_id);
+    //    auto result = m_appPostgresql->getConversationMembers(conv_id);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_404, "会话不存在");
     //    #else
@@ -263,7 +335,7 @@ public:
     //    OATPP_ASSERT_HTTP(convUuid && !convUuid->empty(), Status::CODE_400, "会话ID不能为空");
     //    OATPP_ASSERT_HTTP(request, Status::CODE_400, "请求参数不能为空");
     //    OATPP_ASSERT_HTTP(request->userIds && !request->userIds->empty(), Status::CODE_400, "用户ID列表不能为空");
-    //    auto convCheck = m_appClient->getConversationIdByUuid(convUuid);
+    //    auto convCheck = m_appPostgresql->getConversationIdByUuid(convUuid);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(convCheck->isSuccess(), Status::CODE_500, convCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(convCheck->hasMoreToFetch(), Status::CODE_404, "会话不存在");
@@ -272,17 +344,17 @@ public:
     //    #endif
     //    auto conv_id = convCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //    auto transaction = m_appClient->beginTransaction();
+    //    auto transaction = m_appPostgresql->beginTransaction();
     //    for (auto userId : *request->userIds) {
     //        OATPP_ASSERT_HTTP(userId && !userId->empty(), Status::CODE_400, "用户ID不能为空");
-    //        auto userCheck = m_appClient->getUserIdByUuid(userId);
+    //        auto userCheck = m_appPostgresql->getUserIdByUuid(userId);
     //        #ifdef SQLCHECK
     //        OATPP_ASSERT_HTTP(userCheck->isSuccess() && userCheck->hasMoreToFetch(), Status::CODE_404, "用户不存在");
     //        #else
     //        OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //        #endif
     //        auto user_id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
-    //        auto result = m_appClient->addConversationMembers(conv_id, user_id);
+    //        auto result = m_appPostgresql->addConversationMembers(conv_id, user_id);
     //        if (!result->isSuccess()) {
     //            transaction.rollback();
     //            OATPP_ASSERT_HTTP(false, Status::CODE_400, "添加成员失败");
@@ -295,7 +367,7 @@ public:
     //oatpp::Boolean leaveConversation(const oatpp::String& currentUserIdHeader, const oatpp::String& convUuid) {
     //    OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
     //    OATPP_ASSERT_HTTP(convUuid && !convUuid->empty(), Status::CODE_400, "会话ID不能为空");
-    //    auto userCheck = m_appClient->getUserIdByUuid(currentUserIdHeader);
+    //    auto userCheck = m_appPostgresql->getUserIdByUuid(currentUserIdHeader);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(userCheck->isSuccess(), Status::CODE_500, userCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(userCheck->hasMoreToFetch(), Status::CODE_401, "用户不存在或已失效");
@@ -304,7 +376,7 @@ public:
     //    #endif
     //    auto user_id = userCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //    auto convCheck = m_appClient->getConversationIdByUuid(convUuid);
+    //    auto convCheck = m_appPostgresql->getConversationIdByUuid(convUuid);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(convCheck->isSuccess(), Status::CODE_500, convCheck->getErrorMessage());
     //    OATPP_ASSERT_HTTP(convCheck->hasMoreToFetch(), Status::CODE_404, "会话不存在");
@@ -313,7 +385,7 @@ public:
     //    #endif
     //    auto conv_id = convCheck->fetch<oatpp::Vector<oatpp::Object<IdDTO>>>()[0]->id;
 
-    //    auto result = m_appClient->leaveConversation(conv_id, user_id);
+    //    auto result = m_appPostgresql->leaveConversation(conv_id, user_id);
     //    #ifdef SQLCHECK
     //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "退出会话失败");
     //    #else
