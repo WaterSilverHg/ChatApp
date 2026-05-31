@@ -6,6 +6,7 @@
 #include"../dto/GeneralDto.hpp"
 #include "../postgresql/AppPostgresql.hpp"
 #include "../../jwt/Appjwt.h"
+#include "../../smtp/AppEmail.hpp"
 
 class AuthService {
     using Status = oatpp::web::protocol::http::Status;
@@ -13,7 +14,7 @@ private:
     std::shared_ptr<AppPostgresql> m_appPostgresql;
     std::shared_ptr<Appjwt> m_jwt;
     std::shared_ptr<AppRedis> m_redis;
-    // std::shared_ptr<AppEmail> m_email;
+    std::shared_ptr<AppEmail> m_email;
 
     bool verifyPassword(const oatpp::String& plainPassword, const oatpp::String& storedHash) {
         return BCrypt::validatePassword(plainPassword->c_str(), storedHash->c_str());
@@ -22,8 +23,9 @@ private:
 public:
     AuthService(const std::shared_ptr<AppPostgresql>& appClient,
                 const std::shared_ptr<Appjwt>& jwt,
-                const std::shared_ptr<AppRedis>& redis)
-        : m_appPostgresql(appClient), m_jwt(jwt), m_redis(redis) {}
+                const std::shared_ptr<AppRedis>& redis,
+                const std::shared_ptr<AppEmail>& email = nullptr)
+        : m_appPostgresql(appClient), m_jwt(jwt), m_redis(redis), m_email(email) {}
 
     oatpp::Object<LoginResponseVO> login(const oatpp::Object<LoginRequestDTO>& request) {
         OATPP_ASSERT_HTTP(request->email, Status::CODE_400, "邮箱不能为空");
@@ -65,6 +67,20 @@ public:
     }
 
     oatpp::Object<LoginResponseVO> signup(const oatpp::Object<RegisterRequestDTO>& request) {
+        // 验证验证码
+        OATPP_ASSERT_HTTP(request->verificationCode && !request->verificationCode->empty(),
+            Status::CODE_400, "验证码不能为空");
+
+        std::string email = request->email->c_str();
+        std::string storedCode = m_redis->getVerificationCode(email);
+        OATPP_ASSERT_HTTP(!storedCode.empty(), Status::CODE_400, "验证码不存在或已过期");
+
+        std::string inputCode = request->verificationCode->c_str();
+        OATPP_ASSERT_HTTP(storedCode == inputCode, Status::CODE_400, "验证码错误");
+
+        // 验证码正确，删除已使用的验证码（防止重复使用）
+        m_redis->deleteVerificationCode(email);
+
         auto result = m_appPostgresql->createUser(request->username, request->email, request->phone, request->password);
         #ifdef SQLCHECK
         if(!result->isSuccess()) {
@@ -100,6 +116,12 @@ public:
     }
 
     oatpp::Boolean resetPassword(const oatpp::Object<ResetPasswordRequestDTO>& request) {
+        // 验证验证码
+        OATPP_ASSERT_HTTP(request->verificationCode, Status::CODE_400, "验证码不能为空");
+        std::string storedCode = m_redis->getVerificationCode(request->email->c_str());
+        OATPP_ASSERT_HTTP(!storedCode.empty(), Status::CODE_401, "验证码不存在或已过期");
+        OATPP_ASSERT_HTTP(storedCode == request->verificationCode->c_str(), Status::CODE_401, "验证码错误");
+
         auto userResult = m_appPostgresql->getUserByEmail(request->email);
 #ifdef SQLCHECK
         if(!userResult->isSuccess()) {
@@ -123,6 +145,10 @@ public:
         }
         #endif
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "重置密码失败");
+
+        // 删除已使用的验证码
+        m_redis->deleteVerificationCode(request->email->c_str());
+
         return true;
     }
 
@@ -282,13 +308,19 @@ public:
 
         if (m_redis->existsVerificationCode(email)) {
             long long ttl = m_redis->getVerificationCodeTTL(email);
-            OATPP_ASSERT_HTTP(ttl <= 60 || ttl < 0, Status::CODE_400, "验证码请求频繁");
+            OATPP_ASSERT_HTTP(ttl <= 240, Status::CODE_400, "验证码请求频繁");
+            OATPP_ASSERT_HTTP(ttl > 0, Status::CODE_400, "验证码已过期或不存在");
         }
 
         std::string code = generateVerificationCode();
-        ;
-        OATPP_ASSERT_HTTP(m_redis->setVerificationCode(email, code, 300), Status::CODE_500, "服务器发送验证码失败");
-        // ||!m_email->sendVerificationCode(code,email)
+        OATPP_ASSERT_HTTP(m_redis->setVerificationCode(email, code, 300), Status::CODE_500, "服务器保存验证码失败");
+
+        // 通过 SMTP 发送验证码邮件
+        if (m_email) {
+            OATPP_ASSERT_HTTP(m_email->sendVerificationCode(code, email),
+                Status::CODE_500, "邮件发送失败，请稍后重试");
+        }
+
         return true;
     }
 

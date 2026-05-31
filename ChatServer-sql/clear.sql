@@ -8,16 +8,19 @@ BEGIN;
 
 -- 删除表（顺序按外键依赖，先删子表，再删父表）
 DROP TABLE IF EXISTS conversations;
-DROP TABLE IF EXISTS message_reads;
-DROP TABLE IF EXISTS offline_messages;
-DROP TABLE IF EXISTS messages;
 DROP TABLE IF EXISTS group_members;
-DROP TABLE IF EXISTS groups;
-DROP TABLE IF EXISTS friendships;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS group_requests;
 DROP TABLE IF EXISTS friend_requests;
 DROP TABLE IF EXISTS files;
+DROP TABLE IF EXISTS friendships;
+DROP TABLE IF EXISTS groups;
 DROP TABLE IF EXISTS user_settings;
 DROP TABLE IF EXISTS users;
+
+-- 删除扩展（可选，如果需要完全清理）
+-- DROP EXTENSION IF EXISTS "uuid-ossp";
+-- DROP EXTENSION IF EXISTS "pgcrypto";
 
 COMMIT;
 
@@ -25,7 +28,7 @@ COMMIT;
 DO $$
 DECLARE
     table_exists BOOLEAN;
-    table_list TEXT[] := ARRAY['users', 'conversations', 'messages', 'groups'];
+    table_list TEXT[] := ARRAY['users', 'conversations', 'messages', 'groups', 'friendships'];
     t TEXT;
 BEGIN
     RAISE NOTICE '==========================================';

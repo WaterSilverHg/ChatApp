@@ -32,11 +32,13 @@ public:
 	bool initRedis(const char* url) {
 		try {
 			handle = new sw::redis::Redis(url);
+			OATPP_LOGI("Redis", "Redis connection initialized successfully");
 			return true;
 		}
 		catch (const sw::redis::Error& e) {
-			std::cerr << "Error: " << e.what() << std::endl;
-			return false;
+			OATPP_LOGE("Redis", "Failed to initialize Redis connection: %s", e.what());
+			std::cerr << "Error: Failed to initialize Redis connection: " << e.what() << std::endl;
+			std::exit(1);
 		}
 	}
 	sw::redis::Redis* getHandle() {

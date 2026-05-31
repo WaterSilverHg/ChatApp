@@ -12,16 +12,22 @@ RequestDialog::RequestDialog(QWidget* parent)
 
 void RequestDialog::setFriendRequests(const QJsonArray& requests)
 {
+    qDebug() << "[DEBUG] setFriendRequests called, count:" << requests.size();
     ui.friendListWidget->clear();
-    for (const auto& v : requests)
+    for (const auto& v : requests) {
+        qDebug() << "[DEBUG] Building friend request item:" << v;
         buildFriendRequestItem(v.toObject(), ui.friendListWidget);
+    }
 }
 
 void RequestDialog::setGroupRequests(const QJsonArray& requests)
 {
+    qDebug() << "[DEBUG] setGroupRequests called, count:" << requests.size();
     ui.groupListWidget->clear();
-    for (const auto& v : requests)
+    for (const auto& v : requests) {
+        qDebug() << "[DEBUG] Building group request item:" << v;
         buildGroupRequestItem(v.toObject(), ui.groupListWidget);
+    }
 }
 
 void RequestDialog::buildFriendRequestItem(const QJsonObject& req, QListWidget* list)
@@ -31,7 +37,7 @@ void RequestDialog::buildFriendRequestItem(const QJsonObject& req, QListWidget* 
     QString createdAt = req["createdat"].toString();
     QJsonObject requester = req["requester"].toObject();
     QString fromUserName = requester["username"].toString();
-    QString fromUserUuid = requester["uuid"].toString();
+    QString fromUserUuid = requester["useruuid"].toString();
 
     QListWidgetItem* item = new QListWidgetItem();
     item->setData(Qt::UserRole, requestUuid);
@@ -105,6 +111,7 @@ void RequestDialog::buildFriendRequestItem(const QJsonObject& req, QListWidget* 
     vlay->addLayout(btnRow);
 
     item->setSizeHint(w->sizeHint());
+    list->addItem(item);
     list->setItemWidget(item, w);
 }
 
@@ -169,7 +176,7 @@ void RequestDialog::buildGroupRequestItem(const QJsonObject& req, QListWidget* l
                 disconnect(*conn);
                 delete conn;
             });
-        ws->handleGroupRequest(requestUuid, "accept");
+        ws->handleGroupRequest(requestUuid, "accepted");
     });
 
     connect(rejectBtn, &QPushButton::clicked, [this, requestUuid, list, item,ws]() {
@@ -194,5 +201,6 @@ void RequestDialog::buildGroupRequestItem(const QJsonObject& req, QListWidget* l
     vlay->addLayout(btnRow);
 
     item->setSizeHint(w->sizeHint());
+    list->addItem(item);
     list->setItemWidget(item, w);
 }

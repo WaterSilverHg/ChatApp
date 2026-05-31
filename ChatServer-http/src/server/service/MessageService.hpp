@@ -38,6 +38,7 @@ public:
         }
         #endif
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取消息失败");
+        
         return result->fetch<oatpp::Vector<oatpp::Object<PrivateMessageVO>>>();
     }
 
@@ -60,6 +61,7 @@ public:
         }
         #endif
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取消息失败");
+        
         return result->fetch<oatpp::Vector<oatpp::Object<PrivateMessageVO>>>();
     }
 
@@ -85,6 +87,7 @@ public:
         }
         #endif
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取消息失败");
+        
         return result->fetch<oatpp::Vector<oatpp::Object<PrivateMessageVO>>>();
     }
 
@@ -182,24 +185,24 @@ public:
         return true;
     }
 
-    oatpp::Boolean recallMessage(const oatpp::String& currentUserIdHeader, const oatpp::String& messageUuid) {
-        OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
-        OATPP_ASSERT_HTTP(messageUuid && !messageUuid->empty(), Status::CODE_400, "消息ID不能为空");
-        auto currentUserId = m_idCache->getUserId(currentUserIdHeader);
-        OATPP_ASSERT_HTTP(currentUserId > 0, Status::CODE_401, "用户不存在或已失效");
+    //oatpp::Boolean recallMessage(const oatpp::String& currentUserIdHeader, const oatpp::String& messageUuid) {
+    //    OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
+    //    OATPP_ASSERT_HTTP(messageUuid && !messageUuid->empty(), Status::CODE_400, "消息ID不能为空");
+    //    auto currentUserId = m_idCache->getUserId(currentUserIdHeader);
+    //    OATPP_ASSERT_HTTP(currentUserId > 0, Status::CODE_401, "用户不存在或已失效");
 
-        auto messageId = m_idCache->getMessageId(messageUuid);
-        OATPP_ASSERT_HTTP(messageId > 0, Status::CODE_404, "消息不存在");
+    //    auto messageId = m_idCache->getMessageId(messageUuid);
+    //    OATPP_ASSERT_HTTP(messageId > 0, Status::CODE_404, "消息不存在");
 
-        auto result = m_appPostgresql->recallMessage(messageId, currentUserId);
-        #ifdef SQLCHECK
-        if(!result->isSuccess()) {
-            OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
-        }
-        #endif
-        OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "撤回消息失败");
-        return true;
-    }
+    //    auto result = m_appPostgresql->recallMessage(messageId, currentUserId);
+    //    #ifdef SQLCHECK
+    //    if(!result->isSuccess()) {
+    //        OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
+    //    }
+    //    #endif
+    //    OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "撤回消息失败");
+    //    return true;
+    //}
 
     oatpp::Vector<oatpp::Object<GroupMessageVO>> getGroupMessages(const oatpp::String& currentUserIdHeader, const oatpp::String& groupUuid) {
         OATPP_ASSERT_HTTP(currentUserIdHeader && !currentUserIdHeader->empty(), Status::CODE_400, "用户ID不能为空");
@@ -217,6 +220,7 @@ public:
         }
         #endif
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取群消息失败");
+        
         return result->fetch<oatpp::Vector<oatpp::Object<GroupMessageVO>>>();
     }
 
@@ -239,6 +243,7 @@ public:
         }
         #endif
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取群消息失败");
+        
         return result->fetch<oatpp::Vector<oatpp::Object<GroupMessageVO>>>();
     }
 
@@ -264,6 +269,7 @@ public:
         }
         #endif
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_500, "获取群消息失败");
+        
         return result->fetch<oatpp::Vector<oatpp::Object<GroupMessageVO>>>();
     }
 
@@ -336,4 +342,5 @@ public:
     //    #endif
     //    return true;
     //}
+
 };

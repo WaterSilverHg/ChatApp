@@ -107,11 +107,10 @@ private:
     }
 
     // 获取群成员 UUID 列表（排除发送者）
-    std::vector<oatpp::String> getGroupMemberUuids(const oatpp::String& groupUuid, const oatpp::String& excludeUserUuid) {
+    std::vector<oatpp::String> getGroupMemberUuids(oatpp::Int64 groupId, const oatpp::String& excludeUserUuid) {
         std::vector<oatpp::String> uuids;
         try {
-            auto groupId = idCache->getGroupId(groupUuid);
-            if (groupId <= 0)return uuids;
+            if (groupId <= 0) return uuids;
 
             auto members = appClient->getGroupMembers(groupId);
             if (!members->isSuccess()) return uuids;
@@ -151,7 +150,6 @@ private:
                 sendError(userUuid, "Request UUID and status are required");
                 return;
             }
-            // 防重：同一请求 3 秒内重复处理
             if (!redis->tryAcquireDedupLock(*userUuid, "handle_friend_req",
                     *request->reqUuid, "", 3)) {
                 sendError(userUuid, "Duplicate request, please wait");
@@ -159,6 +157,26 @@ private:
             }
             auto result = friendService->handleFriendRequest(userUuid, request->reqUuid, request->status);
             sendResponse(userUuid, "handle_friend_request_response", objectMapper->writeToString(result));
+
+            if (request->status == "accepted") {
+                oatpp::Int64 fromUserId = result->fromUserId;
+                oatpp::Int64 toUserId = result->toUserId;
+
+                auto fromUserUuid = idCache->getUserUuid(fromUserId);
+                //auto toUserUuid = idCache->getUserUuid(toUserId);
+
+                auto toUserInfoResult = appClient->getUserById(toUserId);
+                if (toUserInfoResult->isSuccess() && toUserInfoResult->hasMoreToFetch()) {
+                    auto toUserInfo = toUserInfoResult->fetch<oatpp::Vector<oatpp::Object<UserInfoVO>>>()[0];
+
+                    auto broadcast = oatpp::Object<WebSocketResponseDTO>::createShared();
+                    broadcast->type = "friend_request_accepted";
+                    broadcast->content = objectMapper->writeToString(toUserInfo);
+                    broadcast->success = true;
+
+                    webSocket->sendMessageToUser(fromUserUuid, objectMapper->writeToString(broadcast));
+                }
+            }
         };
 
 
@@ -198,7 +216,6 @@ private:
                 sendError(userUuid, "Invalid group data");
                 return;
             }
-            // 防重：同一用户 5 秒内重复创建群组
             if (!redis->tryAcquireDedupLock(*userUuid, "create_group",
                     "", HashUtils::hashContent(request->name), 5)) {
                 sendError(userUuid, "Duplicate request, please wait");
@@ -206,6 +223,25 @@ private:
             }
             auto result = groupService->createGroup(userUuid, request);
             sendResponse(userUuid, "create_group_response", objectMapper->writeToString(result));
+
+            if (request->memberUuids && !request->memberUuids->empty()) {
+                auto broadcast = oatpp::Object<WebSocketResponseDTO>::createShared();
+                broadcast->type = "group_created";
+                broadcast->content = objectMapper->writeToString(result);
+                broadcast->success = true;
+                auto broadcastJson = objectMapper->writeToString(broadcast);
+
+                std::vector<oatpp::String> memberUuids;
+                for (const auto& memberUuid : *request->memberUuids) {
+                    if (memberUuid && !memberUuid->empty()) {
+                        memberUuids.push_back(memberUuid);
+                    }
+                }
+
+                if (!memberUuids.empty()) {
+                    webSocket->batchPushMessage(memberUuids, broadcastJson);
+                }
+            }
         };
 
         handlers["update_group"] = [this](const oatpp::String& userUuid, const oatpp::String& msg) {
@@ -248,6 +284,18 @@ private:
             }
             auto result = groupService->removeGroupMember(userUuid, request->groupUuid, request->userUuid);
             sendResponse(userUuid, "remove_group_member_response", objectMapper->writeToString(result));
+
+            auto targetUserUuid = request->userUuid;
+
+            auto broadcast = oatpp::Object<WebSocketResponseDTO>::createShared();
+            broadcast->type = "group_member_removed";
+            broadcast->success = true;
+
+            oatpp::Object<GroupUuidDTO> eventDto = oatpp::Object<GroupUuidDTO>::createShared();
+            eventDto->groupUuid = request->groupUuid;
+            broadcast->content = objectMapper->writeToString(eventDto);
+
+            webSocket->sendMessageToUser(targetUserUuid, objectMapper->writeToString(broadcast));
         };
 
         handlers["set_member_role"] = [this](const oatpp::String& userUuid, const oatpp::String& msg) {
@@ -298,7 +346,7 @@ private:
 
                 auto senderId = resolveUserId(userUuid);
                 auto receiverId = resolveUserId(request->toUserUuid);
-                auto messageId = resolveMessageId(result->uuid);
+                auto messageId = resolveMessageId(result->msguuid);
 
                 // 发送方会话：unread = 0（自己发出的消息无需未读计数）
                 appClient->upsertConversationSenderPrivate(senderId, receiverId, messageId);
@@ -334,8 +382,40 @@ private:
                 sendError(userUuid, "Message UUID is required");
                 return;
             }
+
+            oatpp::Object<MessageInfoVO> messageInfo;
+            try {
+                messageInfo = messageService->getMessageInfo(request->messageUuid);
+            } catch (const std::exception& e) {
+                sendError(userUuid, "Failed to get message info");
+                return;
+            }
+
             auto result = messageService->recallMessage(userUuid, request->messageUuid);
             sendResponse(userUuid, "recall_message_response", objectMapper->writeToString(result));
+
+            // 构建撤回广播消息
+            auto recallBroadcast = oatpp::Object<WebSocketResponseDTO>::createShared();
+            recallBroadcast->type = "message_recalled";
+            recallBroadcast->content = request->messageUuid;
+            recallBroadcast->success = true;
+            auto recallJson = objectMapper->writeToString(recallBroadcast);
+
+            // 通知相关用户
+            if (messageInfo->toGroupId > 0) {
+                // 群聊消息，通知所有群成员（包括发送者自己）
+                auto memberUuids = getGroupMemberUuids(messageInfo->toGroupId, userUuid);
+                memberUuids.push_back(userUuid);  // 包括发送者
+                webSocket->batchPushMessage(memberUuids, recallJson);
+            } else if (messageInfo->toUserId > 0) {
+                // 私聊消息，通知发送者和接收者
+                auto senderUuid = messageInfo->fromUserUuid;
+                //为了接口复用，用户卡一下应该是能接受的
+                auto receiverUuidObj = idCache->getUserUuid(messageInfo->toUserId);
+                if (receiverUuidObj) {
+                    webSocket->batchPushMessage({senderUuid, receiverUuidObj}, recallJson);
+                }
+            }
         };
 
         handlers["send_group_message"] = [this](const oatpp::String& userUuid, const oatpp::String& msg) {
@@ -367,7 +447,7 @@ private:
                 appClient->upsertConversationSenderGroup(senderId, groupId, messageId);
 
                 // 获取群成员（排除发送者），每个成员的会话 unread + 1
-                memberUuids = getGroupMemberUuids(request->groupUuid, userUuid);
+                memberUuids = getGroupMemberUuids(groupId, userUuid);
                 for (auto& uuid : memberUuids) {
                     auto memberId = resolveUserId(uuid);
                     appClient->incrementConversationUnreadGroup(memberId, groupId, messageId);
@@ -418,7 +498,6 @@ private:
                 sendError(userUuid, "Request UUID is required");
                 return;
             }
-            // 防重：同一群申请 3 秒内重复处理
             if (!redis->tryAcquireDedupLock(*userUuid, "handle_group_req",
                     *request->grUuid, "", 3)) {
                 sendError(userUuid, "Duplicate request, please wait");
@@ -426,6 +505,26 @@ private:
             }
             auto result = groupService->handleGroupRequest(userUuid, request->grUuid, request);
             sendResponse(userUuid, "handle_group_request_response", objectMapper->writeToString(result));
+
+            if (request->status == "accepted") {
+                oatpp::Int64 groupId = result->groupId;
+                oatpp::Int64 requesterId = result->requesterId;
+
+                auto requesterUuid = idCache->getUserUuid(requesterId);
+                //auto groupUuid = idCache->getGroupUuid(groupId);
+
+                auto groupInfoResult = appClient->getGroupDetail(groupId);
+                if (groupInfoResult->isSuccess() && groupInfoResult->hasMoreToFetch()) {
+                    auto groupInfo = groupInfoResult->fetch<oatpp::Vector<oatpp::Object<GroupDetailInfoVO>>>()[0];
+
+                    auto broadcast = oatpp::Object<WebSocketResponseDTO>::createShared();
+                    broadcast->type = "group_request_accepted";
+                    broadcast->content = objectMapper->writeToString(groupInfo);
+                    broadcast->success = true;
+
+                    webSocket->sendMessageToUser(requesterUuid, objectMapper->writeToString(broadcast));
+                }
+            }
         };
     }
 };

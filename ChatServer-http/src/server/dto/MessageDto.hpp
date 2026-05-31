@@ -12,7 +12,7 @@ class PrivateMessageDTO : public oatpp::DTO {
     DTO_FIELD(String, fromUserId, "fromuserid");    // 发送者 UUID
     DTO_FIELD(String, toUserId, "touserid");        // 接收者 UUID
     DTO_FIELD(String, content, "content");
-    DTO_FIELD(String, messageType, "messagetype");  // text, image, file, audio, video
+    DTO_FIELD(String, messageType, "messagetype");  // text, image, file, audio, video, recalled
     DTO_FIELD(String, createdAt, "createdat");
     DTO_FIELD(String, clientMsgId, "clientmsgid");  // 客户端消息 ID（用于去重）
 
@@ -31,7 +31,7 @@ class GroupMessageDTO : public oatpp::DTO {
     DTO_FIELD(String, fromUserId, "fromuserid");    // 发送者 UUID
     DTO_FIELD(String, groupId, "groupid");          // 群组 UUID
     DTO_FIELD(String, content, "content");
-    DTO_FIELD(String, messageType, "messagetype");  // text, image, file, audio, video
+    DTO_FIELD(String, messageType, "messagetype");  // text, image, file, audio, video, recalled
     DTO_FIELD(String, createdAt, "createdat");
     DTO_FIELD(String, clientMsgId, "clientmsgid");  // 客户端消息 ID（用于去重）
 

@@ -16,7 +16,9 @@ SOURCES += \
     src/view/SearchDialog.cpp \
     src/view/RequestDialog.cpp \
     src/view/InfoDialog.cpp \
-    src/view/MainPage.cpp
+    src/view/MainPage.cpp \
+    src/view/CreateGroupDialog.cpp \
+    src/view/AddGroupMembersDialog.cpp
 
 HEADERS += \
     src/global.h \
@@ -32,15 +34,20 @@ HEADERS += \
     src/view/SearchDialog.h \
     src/view/RequestDialog.h \
     src/view/InfoDialog.h \
-    src/view/MainPage.h
+    src/view/MainPage.h \
+    src/view/CreateGroupDialog.h \
+    src/view/AddGroupMembersDialog.h
 
 FORMS += \
+    src/ui/CreateGroupDialog.ui \
     src/ui/LoginPage.ui \
     src/ui/RegisterPage.ui \
     src/ui/chatmainpage.ui \
     src/ui/SearchDialog.ui \
     src/ui/RequestDialog.ui \
-    src/ui/MainPage.ui
+    src/ui/CreateGroupDialog.ui \
+    src/ui/AddGroupMembersDialog.ui
+#    src/ui/MainPage.ui
 
 RESOURCES += \
     src/MainPage.qrc

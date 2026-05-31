@@ -66,7 +66,10 @@
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QTextEdit>
 #include <QScrollBar>
-#include<QInputDialog>
+#include <QTextFrame>
+#include <QMenu>
+#include <QTextTable>
+#include <QInputDialog>
 
 // QtGui 头文件
 #include <QPixmap>

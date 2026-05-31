@@ -32,11 +32,13 @@ public:
 	bool initRedis(const char* url) {
 		try {
 			handle = new sw::redis::Redis(url);
+			OATPP_LOGI("Redis", "Redis connection initialized successfully");
 			return true;
 		}
 		catch (const sw::redis::Error& e) {
-			std::cerr << "Error: " << e.what() << std::endl;
-			return false;
+			OATPP_LOGE("Redis", "Failed to initialize Redis connection: %s", e.what());
+			std::cerr << "Error: Failed to initialize Redis connection: " << e.what() << std::endl;
+			std::exit(1);
 		}
 	}
 	sw::redis::Redis* getHandle() {
@@ -120,6 +122,17 @@ public:
 		}
 	}
 
+
+	// 删除验证码（验证通过后调用，防止重复使用）
+	bool deleteVerificationCode(const std::string& email) {
+		try {
+			std::string key = "verification:" + email;
+			return handle->del(key) > 0;
+		} catch (const sw::redis::Error& e) {
+			std::cerr << "Error deleting verification code: " << e.what() << std::endl;
+			return false;
+		}
+	}
 	// 检查验证码是否存在
 	bool existsVerificationCode(const std::string& email) {
 		try {

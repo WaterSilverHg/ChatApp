@@ -111,10 +111,10 @@ public:
         QUERY(getReceivedFriendRequests,
             "SELECT "
             "  CAST(fr.uuid AS VARCHAR) AS uuid,"
-            "  CAST(from_user.uuid AS VARCHAR) AS fromUserUuid, "
-            "  CAST(to_user.uuid AS VARCHAR) AS toUserUuid, "
+            "  CAST(from_user.uuid AS VARCHAR) AS fromuseruuid, "
+            "  CAST(to_user.uuid AS VARCHAR) AS touseruuid, "
             "  fr.status, "
-            "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt, "
+            "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat, "
             "  fr.message "
             "FROM friend_requests fr "
             "JOIN users from_user ON fr.from_user_id = from_user.id "
@@ -127,10 +127,10 @@ public:
     QUERY(getSentFriendRequests,
         "SELECT "
         "  CAST(fr.uuid AS VARCHAR) AS uuid,"
-        "  CAST(u.uuid AS VARCHAR) AS fromUserUuid, "
-        "  CAST(to_user.uuid AS VARCHAR) AS toUserUuid, "
+        "  CAST(u.uuid AS VARCHAR) AS fromuseruuid, "
+        "  CAST(to_user.uuid AS VARCHAR) AS touseruuid, "
         "  fr.status, "
-        "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt, "
+        "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat, "
         "  fr.message "
         "FROM friend_requests fr "
         "JOIN users u ON fr.from_user_id = u.id "
@@ -143,12 +143,12 @@ public:
     QUERY(getReceivedFriendRequestsWithUserInfo,
         "SELECT "
         "  CAST(fr.uuid AS VARCHAR) AS uuid,"
-        "  CAST(from_user.uuid AS VARCHAR) AS fromUserUuid, "
-        "  from_user.username AS fromUsername, "
-        "  from_user.avatar_url AS fromAvatarUrl, "
-        "  CAST(to_user.uuid AS VARCHAR) AS toUserUuid, "
+        "  CAST(from_user.uuid AS VARCHAR) AS fromuseruuid, "
+        "  from_user.username AS fromusername, "
+        "  from_user.avatar_url AS fromavatarurl, "
+        "  CAST(to_user.uuid AS VARCHAR) AS touseruuid, "
         "  fr.status, "
-        "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt, "
+        "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat, "
         "  fr.message "
         "FROM friend_requests fr "
         "JOIN users from_user ON fr.from_user_id = from_user.id "
@@ -161,12 +161,12 @@ public:
     QUERY(getSentFriendRequestsWithUserInfo,
         "SELECT "
         "  CAST(fr.uuid AS VARCHAR) AS uuid,"
-        "  CAST(u.uuid AS VARCHAR) AS fromUserUuid, "
-        "  CAST(to_user.uuid AS VARCHAR) AS toUserUuid, "
-        "  to_user.username AS toUsername, "
-        "  to_user.avatar_url AS toAvatarUrl, "
+        "  CAST(u.uuid AS VARCHAR) AS fromuseruuid, "
+        "  CAST(to_user.uuid AS VARCHAR) AS touseruuid, "
+        "  to_user.username AS tousername, "
+        "  to_user.avatar_url AS toavatarurl, "
         "  fr.status, "
-        "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt, "
+        "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat, "
         "  fr.message "
         "FROM friend_requests fr "
         "JOIN users u ON fr.from_user_id = u.id "
@@ -178,10 +178,10 @@ public:
         QUERY(getFriendRequestByUuid,
             "SELECT "
             "  CAST(fr.uuid AS VARCHAR) AS uuid, "
-            "  CAST(from_user.uuid AS VARCHAR) AS fromUserUuid, "
-            "  CAST(to_user.uuid AS VARCHAR) AS toUserUuid, "
+            "  CAST(from_user.uuid AS VARCHAR) AS fromuseruuid, "
+            "  CAST(to_user.uuid AS VARCHAR) AS touseruuid, "
             "  fr.status, "
-            "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt, "
+            "  TO_CHAR(fr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat, "
             "  fr.message "
             "FROM friend_requests fr "
             "JOIN users from_user ON fr.from_user_id = from_user.id "
@@ -219,7 +219,7 @@ public:
 
     // 获取好友列表
     QUERY(getFriends,
-          "SELECT CAST(u.uuid AS VARCHAR) AS friendUuid, u.username, u.avatar_url AS avatarUrl, u.status, f.remark, f.group_name AS groupName "
+          "SELECT CAST(u.uuid AS VARCHAR) AS frienduuid, u.username, u.avatar_url AS avatarurl, u.status, f.remark, f.group_name AS groupname "
         " FROM friendships f "
         "JOIN users u ON f.friend_id = u.id "
         " WHERE f.user_id = :userId AND f.status = 'accepted' AND u.deleted_at IS NULL; ",
@@ -228,16 +228,16 @@ public:
     // 获取好友详情
     QUERY(getFriendDetail,
           "SELECT "
-          "  CAST(u.uuid AS VARCHAR) AS userUuid, "
+          "  CAST(u.uuid AS VARCHAR) AS useruuid, "
           "  u.username, "
           "  u.email, "
-          "  u.avatar_url AS avatarUrl, "
+          "  u.avatar_url AS avatarurl, "
           "  f.remark, "
-          "  f.group_name AS groupName, "
+          "  f.group_name AS groupname, "
           "  u.status, "
-          "  TO_CHAR(u.last_login, 'YYYY-MM-DD HH24:MI:SS') AS lastSeen, "
-          "  COALESCE(c.is_muted, false) AS isMuted, "
-          "  TO_CHAR(f.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+          "  TO_CHAR(u.last_login, 'YYYY-MM-DD HH24:MI:SS') AS lastseen, "
+          "  COALESCE(c.is_muted, false) AS ismuted, "
+          "  TO_CHAR(f.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
           "FROM friendships f "
           "JOIN users u ON f.friend_id = u.id "
           "LEFT JOIN conversations c ON c.user_id = f.user_id AND c.target_user_id = f.friend_id "
@@ -247,7 +247,7 @@ public:
 
     // 获取拉黑用户列表
     QUERY(getBlockedUsers,
-          "SELECT CAST(u.uuid AS VARCHAR) AS friendUuid, u.username, u.avatar_url AS avatarUrl, u.status, f.remark, f.group_name AS groupName "
+          "SELECT CAST(u.uuid AS VARCHAR) AS frienduuid, u.username, u.avatar_url AS avatarurl, u.status, f.remark, f.group_name AS groupname "
         " FROM friendships f "
         "JOIN users u ON f.friend_id = u.id "
         " WHERE f.user_id = :userId AND f.status = 'blocked' AND u.deleted_at IS NULL; ",
@@ -269,7 +269,7 @@ public:
 
     // 获取好友分组列表
     QUERY(getFriendGroupNames,
-        "SELECT DISTINCT group_name AS groupName FROM friendships WHERE user_id = :userId AND status = 'accepted' ORDER BY group_name;",
+        "SELECT DISTINCT group_name AS groupname FROM friendships WHERE user_id = :userId AND status = 'accepted' ORDER BY group_name;",
         PARAM(oatpp::Int64, userId))
 
     // 重命名分组
@@ -330,7 +330,7 @@ QUERY(sendPrivateMessage,
         QUERY(getPrivateMessages,
             "SELECT * FROM ("
             "  SELECT "
-            "    CAST(m.uuid AS VARCHAR) AS uuid, "
+            "    CAST(m.uuid AS VARCHAR) AS msguuid, "
             "    CAST(from_user.uuid AS VARCHAR) AS fromuseruuid, "
             "    from_user.username AS username, "
             "    from_user.avatar_url AS avatarurl, "
@@ -345,8 +345,8 @@ QUERY(sendPrivateMessage,
             "  JOIN users from_user ON m.from_user_id = from_user.id "
             "  JOIN users to_user ON m.to_user_id = to_user.id "
             "  WHERE (m.from_user_id = :userId AND m.to_user_id = :friendId) "
-            "     OR (m.from_user_id = :friendId AND m.to_user_id = :userId) "
-            "  ORDER BY m.created_at DESC "
+             "     OR (m.from_user_id = :friendId AND m.to_user_id = :userId) "
+             "  ORDER BY m.created_at DESC "
             "  LIMIT :limit OFFSET :offset "
             ") AS recent_messages "
             "ORDER BY recent_messages.createdat ASC;",
@@ -359,7 +359,7 @@ QUERY(sendPrivateMessage,
     QUERY(getPrivateMessagesBefore,
         "SELECT * FROM ("
         "  SELECT "
-        "    CAST(m.uuid AS VARCHAR) AS uuid, "
+        "    CAST(m.uuid AS VARCHAR) AS msguuid, "
         "    CAST(from_user.uuid AS VARCHAR) AS fromuseruuid, "
         "    from_user.username AS username, "
         "    from_user.avatar_url AS avatarurl, "
@@ -374,9 +374,9 @@ QUERY(sendPrivateMessage,
         "  JOIN users from_user ON m.from_user_id = from_user.id "
         "  JOIN users to_user ON m.to_user_id = to_user.id "
         "  WHERE ((m.from_user_id = :userId AND m.to_user_id = :friendId) "
-        "     OR (m.from_user_id = :friendId AND m.to_user_id = :userId)) "
-        "     AND m.id < :msgId "
-        "  ORDER BY m.created_at DESC "
+         "     OR (m.from_user_id = :friendId AND m.to_user_id = :userId)) "
+         "     AND m.id < :msgId "
+         "  ORDER BY m.created_at DESC "
         "  LIMIT :limit "
         ") AS recent_messages "
         "ORDER BY recent_messages.createdat ASC;",
@@ -400,17 +400,17 @@ QUERY(sendPrivateMessage,
     //    PARAM(oatpp::Int64, userId))
 
     // 撤回消息
-    QUERY(recallMessage, 
-          "DELETE FROM messages WHERE id = :messageId AND from_user_id = :userId;",
-          PARAM(oatpp::Int64, messageId),
-          PARAM(oatpp::Int64, userId))
+    // QUERY(recallMessage, 
+    //       "UPDATE messages SET message_type = 'recalled', content = '', file_url = NULL, file_size = NULL, file_name = NULL, mime_type = NULL WHERE id = :messageId AND from_user_id = :userId AND message_type != 'recalled';",
+    //       PARAM(oatpp::Int64, messageId),
+    //       PARAM(oatpp::Int64, userId))
 
     // 发送群消息
     QUERY(sendGroupMessage,
         "INSERT INTO messages (from_user_id, to_group_id, message_type, content, file_url, file_size, file_name, mime_type) "
         "VALUES (:fromUserId, :groupId, :messageType, :content, :fileUrl, :fileSize, :fileName, :mimeType) "
         "RETURNING "
-        "  CAST(uuid AS VARCHAR) AS uuid, "
+        "  CAST(uuid AS VARCHAR) AS msguuid, "
         "  :messageType AS messagetype, "
         "  :content AS content, "
         "  :fileUrl AS fileurl, "
@@ -430,7 +430,7 @@ QUERY(sendPrivateMessage,
         QUERY(getGroupMessages,
             "SELECT * FROM ("
             "  SELECT "
-            "    CAST(m.uuid AS VARCHAR) AS uuid, "
+            "    CAST(m.uuid AS VARCHAR) AS msguuid, "
             "    CAST(from_user.uuid AS VARCHAR) AS fromuseruuid, "
             "    from_user.username AS username, "
             "    from_user.avatar_url AS avatarurl, "
@@ -445,7 +445,7 @@ QUERY(sendPrivateMessage,
             "  JOIN users from_user ON m.from_user_id = from_user.id "
             "  JOIN groups g ON m.to_group_id = g.id "
             "  WHERE m.to_group_id = :groupId "
-            "  ORDER BY m.created_at DESC "
+             "  ORDER BY m.created_at DESC "
             "  LIMIT :limit OFFSET :offset "
             ") AS recent_messages "
             "ORDER BY recent_messages.createdat ASC;",
@@ -457,7 +457,7 @@ QUERY(sendPrivateMessage,
     QUERY(getGroupMessagesBefore,
             "SELECT * FROM ("
             "  SELECT "
-            "    CAST(m.uuid AS VARCHAR) AS uuid, "
+            "    CAST(m.uuid AS VARCHAR) AS msguuid, "
             "    CAST(from_user.uuid AS VARCHAR) AS fromuseruuid, "
             "    from_user.username AS username, "
             "    from_user.avatar_url AS avatarurl, "
@@ -472,8 +472,8 @@ QUERY(sendPrivateMessage,
             "  JOIN users from_user ON m.from_user_id = from_user.id "
             "  JOIN groups g ON m.to_group_id = g.id "
             "  WHERE m.to_group_id = :groupId "
-            "     AND m.id < :msgId "
-            "  ORDER BY m.created_at DESC "
+             "     AND m.id < :msgId "
+             "  ORDER BY m.created_at DESC "
             "  LIMIT :limit "
             ") AS recent_messages "
             "ORDER BY recent_messages.createdat ASC;",
@@ -486,24 +486,27 @@ QUERY(sendPrivateMessage,
         "SELECT "
         "  m.id, "
         "  CAST(m.uuid AS VARCHAR) AS uuid, "
-        "  CAST(from_user.uuid AS VARCHAR) AS fromUserUuid, "
-        "  CAST(to_user.uuid AS VARCHAR) AS toUserUuid, "
-        "  CAST(g.uuid AS VARCHAR) AS groupUuid, "
-        "  m.message_type AS messageType, "
+        "  CAST(from_user.uuid AS VARCHAR) AS fromuseruuid, "
+        "  CAST(to_user.uuid AS VARCHAR) AS touseruuid, "
+        "  CAST(g.uuid AS VARCHAR) AS groupuuid, "
+        "  m.message_type AS messagetype, "
         "  m.content, "
-        "  m.file_url AS fileUrl, "
-        "  m.file_size AS fileSize, "
-        "  m.file_name AS fileName, "
-        "  m.mime_type AS mimeType, "
-        "  TO_CHAR(m.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+        "  m.file_url AS fileurl, "
+        "  m.file_size AS filesize, "
+        "  m.file_name AS filename, "
+        "  m.mime_type AS mimetype, "
+        "  TO_CHAR(m.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
         "FROM offline_messages om "
         "JOIN messages m ON om.message_id = m.id "
         "LEFT JOIN users from_user ON m.from_user_id = from_user.id "
         "LEFT JOIN users to_user ON m.to_user_id = to_user.id "
         "LEFT JOIN groups g ON m.to_group_id = g.id "
         "WHERE om.user_id = :userId "
-        "ORDER BY m.created_at ASC;",
-        PARAM(oatpp::Int64, userId))
+        "ORDER BY m.created_at ASC "
+        "LIMIT :limit OFFSET :offset;",
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::Int32, limit),
+        PARAM(oatpp::Int32, offset))
 
     // 标记离线消息为已读
     QUERY(markOfflineMessagesRead, 
@@ -549,9 +552,9 @@ QUERY(sendPrivateMessage,
             "  g.name, "
             "  g.description, "
             "  g.avatar_url AS avatarurl, "
-            "  CAST(u.uuid AS VARCHAR) AS ownerUuid, "
-            "  (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS memberCount, "
-            "  TO_CHAR(g.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+            "  CAST(u.uuid AS VARCHAR) AS owneruuid, "
+            "  (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS membercount, "
+            "  TO_CHAR(g.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
             "FROM group_members gm "
             "JOIN groups g ON gm.group_id = g.id "
             "JOIN users u ON g.owner_id = u.id "
@@ -565,10 +568,10 @@ QUERY(sendPrivateMessage,
         "  CAST(g.uuid AS VARCHAR) AS uuid, "
         "  g.name, "
         "  g.description, "
-        "  g.avatar_url AS avatarUrl, "
-        "  (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS memberCount, "
-        "  g.max_members AS maxMembers, "
-        "  TO_CHAR(g.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+        "  g.avatar_url AS avatarurl, "
+        "  (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS membercount, "
+        "  g.max_members AS maxmembers, "
+        "  TO_CHAR(g.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
         "FROM groups g "
         "WHERE g.id = :groupId AND g.deleted_at IS NULL;",
         PARAM(oatpp::Int64, groupId))
@@ -663,14 +666,14 @@ QUERY(sendPrivateMessage,
     QUERY(getReceivedGroupRequests,
         "SELECT "
         "  CAST(gr.uuid AS VARCHAR) AS uuid, "
-        "  CAST(g.uuid AS VARCHAR) AS groupUuid, "
-        "  g.name AS groupName, "
-        "  CAST(u.uuid AS VARCHAR) AS requesterUuid, "
-        "  u.username AS requesterName, "
-        "  u.avatar_url AS requesterAvatar, "
+        "  CAST(g.uuid AS VARCHAR) AS groupuuid, "
+        "  g.name AS groupname, "
+        "  CAST(u.uuid AS VARCHAR) AS requesteruuid, "
+        "  u.username AS requestername, "
+        "  u.avatar_url AS requesteravatar, "
         "  gr.message, "
         "  gr.status, "
-        "  TO_CHAR(gr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+        "  TO_CHAR(gr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
         "FROM group_requests gr "
         "JOIN groups g ON gr.group_id = g.id "
         "JOIN users u ON gr.requester_id = u.id "
@@ -683,12 +686,12 @@ QUERY(sendPrivateMessage,
     QUERY(getSentGroupRequests,
         "SELECT "
         "  CAST(gr.uuid AS VARCHAR) AS uuid, "
-        "  CAST(g.uuid AS VARCHAR) AS groupUuid, "
-        "  g.name AS groupName, "
-        "  g.avatar_url AS groupAvatar, "
+        "  CAST(g.uuid AS VARCHAR) AS groupuuid, "
+        "  g.name AS groupname, "
+        "  g.avatar_url AS groupavatar, "
         "  gr.message, "
         "  gr.status, "
-        "  TO_CHAR(gr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+        "  TO_CHAR(gr.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
         "FROM group_requests gr "
         "JOIN groups g ON gr.group_id = g.id "
         "WHERE gr.requester_id = :userId AND gr.status = 'pending' "
@@ -709,14 +712,14 @@ QUERY(sendPrivateMessage,
         "    WHEN c.target_user_id IS NOT NULL THEN 'private' "
         "    ELSE 'group' "
         "  END AS type, "
-        "  COALESCE(CAST(u.uuid AS VARCHAR), CAST(g.uuid AS VARCHAR)) AS targetUuid, "
-        "  COALESCE(u.username, g.name) AS targetName, "
-        "  COALESCE(u.avatar_url, g.avatar_url) AS targetAvatar, "
-        "  m.content AS lastMessage, "
-        "  m.message_type AS lastMessageType, "
-        "  TO_CHAR(m.created_at, 'YYYY-MM-DD HH24:MI:SS') AS lastMessageTime, "
-        "  c.unread_count AS unreadCount, "
-        "  c.is_muted AS isMuted "
+        "  COALESCE(CAST(u.uuid AS VARCHAR), CAST(g.uuid AS VARCHAR)) AS targetuuid, "
+        "  COALESCE(u.username, g.name) AS targetname, "
+        "  COALESCE(u.avatar_url, g.avatar_url) AS targetavatar, "
+        "  m.content AS lastmessage, "
+        "  m.message_type AS lastmessagetype, "
+        "  TO_CHAR(m.created_at, 'YYYY-MM-DD HH24:MI:SS') AS lastmessagetime, "
+        "  c.unread_count AS unreadcount, "
+        "  c.is_muted AS ismuted "
         "FROM conversations c "
         "LEFT JOIN users u ON c.target_user_id = u.id AND u.deleted_at IS NULL "
         "LEFT JOIN groups g ON c.target_group_id = g.id AND g.deleted_at IS NULL "
@@ -727,7 +730,7 @@ QUERY(sendPrivateMessage,
 
     // 获取会话详情
     QUERY(getConversationDetail, 
-          "SELECT CAST(uuid AS VARCHAR) AS uuid, type, name, avatar_url AS avatarUrl, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+          "SELECT CAST(uuid AS VARCHAR) AS uuid, type, name, avatar_url AS avatarurl, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
         "  FROM conversations "
            "WHERE id = :conversationId;",
           PARAM(oatpp::Int64, conversationId))
@@ -933,23 +936,23 @@ QUERY(sendPrivateMessage,
         //获取文件信息
         QUERY(getFileById,
             "SELECT CAST(uuid AS VARCHAR) AS uuid, "
-            "       file_name AS fileName, "
-            "       file_type AS fileType, "
-            "       file_size AS fileSize, "
-            "       file_path AS fileUrl, "
-            "       mime_type AS mimeType "
+            "       file_name AS filename, "
+            "       file_type AS filetype, "
+            "       file_size AS filesize, "
+            "       file_path AS fileurl, "
+            "       mime_type AS mimetype "
             "FROM files "
             "WHERE id = :id;",
             PARAM(oatpp::Int64, id))
         //获取文件详情
         QUERY(getFileDetailById,
             "SELECT CAST(f.uuid AS VARCHAR) AS uuid, "
-            "       f.file_name AS fileName, "
-            "       f.file_type AS fileType, "
-            "       f.file_size AS fileSize, "
-            "       f.file_path AS fileUrl, "
-            "       f.mime_type AS mimeType, "
-            "       CAST(u.uuid AS VARCHAR) AS uploaderUuid, "
+            "       f.file_name AS filename, "
+            "       f.file_type AS filetype, "
+            "       f.file_size AS filesize, "
+            "       f.file_path AS fileurl, "
+            "       f.mime_type AS mimetype, "
+            "       CAST(u.uuid AS VARCHAR) AS uploaderuuid, "
             "       TO_CHAR(f.created_at, 'YYYY-MM-DD HH24:MI:SS') AS uploadtime "
             "FROM files f "
             "JOIN users u ON f.user_id = u.id "
@@ -964,7 +967,7 @@ QUERY(sendPrivateMessage,
 
     // 搜索文件
     QUERY(searchFiles, 
-          "SELECT id, file_name AS fileName, storage_type AS fileType, file_size AS fileSize, file_path AS fileUrl, user_id AS uploaderId, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+          "SELECT id, file_name AS filename, storage_type AS filetype, file_size AS filesize, file_path AS fileurl, user_id AS uploaderid, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
         " FROM files "
         "  WHERE user_id = :userId AND file_name LIKE :keyword "
           " ORDER BY created_at DESC;",
@@ -973,7 +976,7 @@ QUERY(sendPrivateMessage,
 
     // 获取文件统计
     QUERY(getFileStatistics, 
-          "SELECT COUNT(*) AS totalFiles, SUM(file_size) AS totalSize "
+          "SELECT COUNT(*) AS totalfiles, SUM(file_size) AS totalsize "
         " FROM files "
            "WHERE user_id = :userId;",
           PARAM(oatpp::Int64, userId))
@@ -981,7 +984,7 @@ QUERY(sendPrivateMessage,
     // ==================== 通知相关 ====================
     // 获取通知列表
     QUERY(getNotifications, 
-          "SELECT id, user_id AS userId, type, title, content, is_read AS isRead, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdAt "
+          "SELECT id, user_id AS userid, type, title, content, is_read AS isread, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
         " FROM notifications "
         "WHERE user_id = :userId "
            "ORDER BY created_at DESC;",
@@ -1019,7 +1022,7 @@ QUERY(sendPrivateMessage,
     // ==================== 状态相关 ====================
     // 获取用户状态
     QUERY(getUserStatus,
-        "SELECT CAST(uuid AS VARCHAR) AS userId, status, TO_CHAR(last_login, 'YYYY-MM-DD HH24:MI:SS') AS lastSeen "
+        "SELECT CAST(uuid AS VARCHAR) AS userid, status, TO_CHAR(last_login, 'YYYY-MM-DD HH24:MI:SS') AS lastseen "
         "FROM users "
         "WHERE id = :userId;",
         PARAM(oatpp::Int64, userId))
@@ -1098,25 +1101,24 @@ QUERY(sendPrivateMessage,
             PARAM(oatpp::String, keyword),
             PARAM(oatpp::Int64, currentUserId))
 
-        // 搜索群组（排除已加入的群组）
+        // 搜索群组（返回所有相关群组，标注是否已加入）
         QUERY(searchGroups,
             "SELECT CAST(g.uuid AS VARCHAR) AS uuid, g.name, g.description, g.avatar_url AS avatarurl, "
             "CAST(owner.uuid AS VARCHAR) AS owneruuid, "
             "COALESCE(member_cnt, 0) AS membercount, "
+            "CASE WHEN gm.user_id IS NOT NULL THEN true ELSE false END AS isjoined, "
             "TO_CHAR(g.created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat "
             "FROM groups g "
             "LEFT JOIN users owner ON g.owner_id = owner.id "
             "LEFT JOIN LATERAL ( "
             "    SELECT COUNT(*) AS member_cnt "
-            "    FROM group_members gm "
-            "    WHERE gm.group_id = g.id "
+            "    FROM group_members gm2 "
+            "    WHERE gm2.group_id = g.id "
             ") sub ON true "
+            "LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = :currentUserId "
             "WHERE g.deleted_at IS NULL "
             "  AND g.name LIKE :keyword "
-            "  AND g.id NOT IN ( "
-            "      SELECT gm2.group_id FROM group_members gm2 WHERE gm2.user_id = :currentUserId "
-            "  ) "
-            "ORDER BY COALESCE(member_cnt, 0) DESC, g.created_at DESC "
+            "ORDER BY isjoined DESC, COALESCE(member_cnt, 0) DESC, g.created_at DESC "
             "LIMIT 50;",
             PARAM(oatpp::String, keyword),
             PARAM(oatpp::Int64, currentUserId))

@@ -12,8 +12,9 @@ class PrivateMessageDTO : public oatpp::DTO {
     DTO_FIELD(String, fromUserId, "fromuserid");    // 发送者 UUID
     DTO_FIELD(String, toUserId, "touserid");        // 接收者 UUID
     DTO_FIELD(String, content, "content");
-    DTO_FIELD(String, messageType, "messagetype");  // text, image, file, audio, video
+    DTO_FIELD(String, messageType, "messagetype");  // text, image, file, audio, video, recalled
     DTO_FIELD(String, createdAt, "createdat");
+    DTO_FIELD(String, deletedAt, "deletedat");      // 软删除时间
     DTO_FIELD(String, clientMsgId, "clientmsgid");  // 客户端消息 ID（用于去重）
 
     // 文件相关字段（可选，仅当 messageType 为 file/image/audio/video 时有值）
@@ -31,8 +32,9 @@ class GroupMessageDTO : public oatpp::DTO {
     DTO_FIELD(String, fromUserId, "fromuserid");    // 发送者 UUID
     DTO_FIELD(String, groupId, "groupid");          // 群组 UUID
     DTO_FIELD(String, content, "content");
-    DTO_FIELD(String, messageType, "messagetype");  // text, image, file, audio, video
+    DTO_FIELD(String, messageType, "messagetype");  // text, image, file, audio, video, recalled
     DTO_FIELD(String, createdAt, "createdat");
+    DTO_FIELD(String, deletedAt, "deletedat");      // 软删除时间
     DTO_FIELD(String, clientMsgId, "clientmsgid");  // 客户端消息 ID（用于去重）
 
     // 文件相关字段（可选，仅当 messageType 为 file/image/audio/video 时有值）

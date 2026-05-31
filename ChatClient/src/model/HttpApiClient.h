@@ -59,10 +59,10 @@ public:
     void getGroupMessagesPage(const QString& gid, int page, int size);
 
     void getMyGroups();
-    void getGroupDetail(const QString& groupUuid);
+    void getGroupDetail(const QString& groupUuid, const QVariant& context = QVariant());
     void getGroupMembers(const QString& groupUuid);
-    void getFriendDetail(const QString& friendUuid);
-    void getUserInfo(const QString& userUuid);
+    void getFriendDetail(const QString& friendUuid, const QVariant& context = QVariant());
+    void getUserInfo(const QString& userUuid, const QVariant& context = QVariant());
 
     void searchUsers(const QString& keyword);
     void searchGroups(const QString& keyword);
@@ -77,8 +77,8 @@ signals:
     void loginSuccess(const QJsonObject& data);
     void registerSuccess(const QJsonObject& data);
     void logoutSuccess();
-    void friendDetailReceived(const QJsonObject& friendDetail);
-    void userInfoReceived(const QJsonObject& user);
+    void friendDetailReceived(const QJsonObject& friendDetail, const QVariant& context = QVariant());
+    void userInfoReceived(const QJsonObject& user, const QVariant& context = QVariant());
     void verificationCodeSent(const QJsonObject& data);
     void passwordResetSuccess(const QJsonObject& data);
 
@@ -113,7 +113,7 @@ signals:
     void groupMessagesPageReceived(const QString& convUuid, const QJsonArray& messages);
 
     void myGroupsReceived(const QJsonArray& groups);
-    void groupDetailReceived(const QJsonObject& group);
+    void groupDetailReceived(const QJsonObject& group, const QVariant& context = QVariant());
     void groupMembersReceived(const QJsonArray& members);
     void userDetailReceived(const QJsonObject& user);
 
@@ -138,7 +138,7 @@ private:
     void sendHttpRequest(const QString& method, const QString& endpoint,
         const QJsonObject& data = QJsonObject());
     void sendAuthenticatedRequest(const QString& method, const QString& endpoint,
-                                  const QJsonObject& data);
+                                  const QJsonObject& data, const QVariant& context = QVariant());
     QString extractUuidFromUrl(const QString& url, const QString& prefix) const;
     void addAuthHeader(QNetworkRequest& request);
 

@@ -112,14 +112,14 @@ public:
         auto groupId = m_idCache->getGroupId(groupUuid);
         OATPP_ASSERT_HTTP(groupId > 0, Status::CODE_401, "群组不存在或已失效");
 
-        auto memberCheck = m_appPostgresql->checkUserInGroup(groupId, userId);
-        #ifdef SQLCHECK
-        if(!memberCheck->isSuccess()) {
-            OATPP_LOGE("SQL_ERROR", "%s", memberCheck->getErrorMessage()->c_str());
-        }
-        #endif
-        OATPP_ASSERT_HTTP(memberCheck->isSuccess(), Status::CODE_500, "检查群组成员失败");
-        OATPP_ASSERT_HTTP(memberCheck->hasMoreToFetch(), Status::CODE_403, "您不是该群组的成员，无权查看");
+        //auto memberCheck = m_appPostgresql->checkUserInGroup(groupId, userId);
+        //#ifdef SQLCHECK
+        //if(!memberCheck->isSuccess()) {
+        //    OATPP_LOGE("SQL_ERROR", "%s", memberCheck->getErrorMessage()->c_str());
+        //}
+        //#endif
+        //OATPP_ASSERT_HTTP(memberCheck->isSuccess(), Status::CODE_500, "检查群组成员失败");
+        //OATPP_ASSERT_HTTP(memberCheck->hasMoreToFetch(), Status::CODE_403, "您不是该群组的成员，无权查看");
 
         auto result = m_appPostgresql->getGroupDetail(groupId);
         #ifdef SQLCHECK
@@ -413,7 +413,8 @@ public:
         int remainingMembers = members->size() - 1;
 
         // 如果只剩最后一个成员，直接解散群聊
-        if (remainingMembers == 1) {
+        //原本是remainingMembers == 1的，其实只有群主一个人的话是无法成立群聊的
+        if (remainingMembers <= 1) {
             auto dissolveResult = m_appPostgresql->dissolveGroup(groupId, currentUserId);
             #ifdef SQLCHECK
             if(!dissolveResult->isSuccess()) {
@@ -481,6 +482,15 @@ public:
         }
         #endif
         OATPP_ASSERT_HTTP(result->isSuccess(), Status::CODE_400, "退出群组失败");
+
+        // 删除该用户的群会话
+        auto deleteConvResult = m_appPostgresql->deleteConversationForGroupMember(groupId, currentUserId);
+        #ifdef SQLCHECK
+        if(!deleteConvResult->isSuccess()) {
+            OATPP_LOGE("SQL_ERROR", "%s", deleteConvResult->getErrorMessage()->c_str());
+        }
+        #endif
+        // 会话删除失败不阻断退出流程，仅记录日志
 
         return true;
     }

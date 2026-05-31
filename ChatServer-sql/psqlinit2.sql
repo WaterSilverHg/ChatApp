@@ -113,7 +113,7 @@ CREATE TABLE messages (
     from_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     to_user_id BIGINT,
     to_group_id BIGINT,
-    message_type VARCHAR(20) NOT NULL CHECK (message_type IN ('text', 'image', 'file', 'audio', 'video', 'system')),
+    message_type VARCHAR(20) NOT NULL CHECK (message_type IN ('text', 'image', 'file', 'audio', 'video', 'system', 'recalled')),
     content TEXT NOT NULL,
     file_url TEXT,
     file_size BIGINT,
@@ -218,7 +218,17 @@ CREATE TABLE conversations (
 
 CREATE INDEX idx_conversations_user ON conversations(user_id, updated_at);
 
+-- 会话表外键约束（级联删除）
+-- 注意：groups 和 users 表使用软删除（deleted_at），ON DELETE CASCADE 仅在硬删除时生效。
+-- 软删除场景由下方的触发器处理。
+ALTER TABLE conversations ADD CONSTRAINT fk_conversations_target_group
+    FOREIGN KEY (target_group_id) REFERENCES groups(id) ON DELETE CASCADE;
+ALTER TABLE conversations ADD CONSTRAINT fk_conversations_target_user
+    FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+-- =====================================================
 -- 函数和触发器
+-- =====================================================
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -247,6 +257,22 @@ CREATE TRIGGER update_friend_requests_updated_at BEFORE UPDATE ON friend_request
 
 CREATE TRIGGER update_conversations_updated_at BEFORE UPDATE ON conversations
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- 群组软删除时级联删除会话（因为 groups 使用 deleted_at 软删除，外键 ON DELETE CASCADE 不会触发）
+CREATE OR REPLACE FUNCTION cascade_group_soft_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN
+        DELETE FROM conversations WHERE target_group_id = NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+DROP TRIGGER IF EXISTS trigger_cascade_group_soft_delete ON groups;
+CREATE TRIGGER trigger_cascade_group_soft_delete
+    BEFORE UPDATE ON groups
+    FOR EACH ROW EXECUTE FUNCTION cascade_group_soft_delete();
 
 -- 完成提示
 SELECT 'Database setup completed successfully!' AS status;

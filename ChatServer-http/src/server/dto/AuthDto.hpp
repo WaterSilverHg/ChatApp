@@ -22,6 +22,7 @@ class RegisterRequestDTO : public oatpp::DTO {
     DTO_FIELD(String, email, "email");
     DTO_FIELD(String, phone, "phone");      // 可选
     DTO_FIELD(String, password, "password");
+    DTO_FIELD(String, verificationCode, "verificationCode");
 };
 
 // 发送验证码请求

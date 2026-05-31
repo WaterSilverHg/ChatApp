@@ -14,6 +14,7 @@ class GroupInfoVO : public oatpp::DTO {
     DTO_FIELD(String, avatarUrl, "avatarurl");
     DTO_FIELD(String, ownerUuid, "owneruuid");
     DTO_FIELD(Int32, memberCount, "membercount");
+    DTO_FIELD(Boolean, isJoined, "isjoined");
     DTO_FIELD(String, createdAt, "createdat");
 };
 

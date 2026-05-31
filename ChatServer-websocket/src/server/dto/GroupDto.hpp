@@ -87,8 +87,8 @@ class GroupRequestResponseDTO : public oatpp::DTO {
 class GroupRequestDetailDTO : public oatpp::DTO {
     DTO_INIT(GroupRequestDetailDTO, DTO)
         DTO_FIELD(Int64, id, "id");
-    DTO_FIELD(Int64, groupId, "groupId");
-    DTO_FIELD(Int64, requesterId, "requesterId");
+    DTO_FIELD(Int64, groupId, "groupid");
+    DTO_FIELD(Int64, requesterId, "requesterid");
 };
 
 #include OATPP_CODEGEN_END(DTO) 

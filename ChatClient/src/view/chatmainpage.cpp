@@ -3,7 +3,8 @@
 #include "LoginPage.h"
 #include "CustomDialog.h"
 #include "SearchDialog.h"
-#include "RequestDialog.h"
+#include "CreateGroupDialog.h"
+//#include "RequestDialog.h"
 #include "InfoDialog.h"
 
 ChatMainPage::ChatMainPage(const QString& username, const QString& token, const QJsonObject& userInfo, QWidget *parent)
@@ -23,7 +24,14 @@ ChatMainPage::ChatMainPage(const QString& username, const QString& token, const 
     setWindowIcon(QIcon(":/chat.svg"));
 //    setStyleSheet(StyleConst::DIALOG_STYLE);
 
-//    ui.chatDisplayWidget->setOpenLinks(false);
+    QPushButton* createGroupBtn = new QPushButton("创建群聊");
+    createGroupBtn->setStyleSheet("QPushButton { background-color: #A8D8B9; color: #333; border: none; border-radius: 4px; padding: 8px; font-weight: bold; } QPushButton:hover { background-color: #7CB894; }");
+    connect(createGroupBtn, &QPushButton::clicked, this, &ChatMainPage::on_createGroupButton_clicked);
+    ui.leftPanelLayout->insertWidget(1, createGroupBtn);
+
+    ui.chatDisplayWidget->setOpenLinks(false);
+    ui.chatDisplayWidget->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui.chatDisplayWidget, &QTextBrowser::customContextMenuRequested, this, &ChatMainPage::onChatDisplayContextMenuRequested);
 
 //    ui.conversationListWidget->setStyleSheet(StyleConst::LIST_STYLE);
 //    ui.sendButton->setStyleSheet(StyleConst::BUTTON_STYLE);
@@ -54,7 +62,7 @@ ChatMainPage::ChatMainPage(const QString& username, const QString& token, const 
     connect(m_httpClient, &HttpApiClient::groupMessagesBeforeReceived, this, &ChatMainPage::onGroupMessagesBeforeReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::groupMessagesPageReceived, this, &ChatMainPage::onGroupMessagesPageReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::errorOccurred, this, &ChatMainPage::onError, Qt::UniqueConnection);
-    connect(m_httpClient, &HttpApiClient::receivedRequestsReceived, this, &ChatMainPage::onReceivedRequestsReceived, Qt::UniqueConnection);
+    connect(m_httpClient, &HttpApiClient::receivedRequestsReceived, this, &ChatMainPage::onReceivedFriendRequestsReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::receivedGroupRequestsReceived, this, &ChatMainPage::onReceivedGroupRequestsReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::friendDetailReceived, this, &ChatMainPage::onFriendDetailReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::userInfoReceived, this, &ChatMainPage::onUserDetailReceived, Qt::UniqueConnection);
@@ -66,11 +74,16 @@ ChatMainPage::ChatMainPage(const QString& username, const QString& token, const 
     connect(m_httpClient, &HttpApiClient::myGroupsReceived, this, &ChatMainPage::onMyGroupsListReceived, Qt::UniqueConnection);
     connect(m_httpClient, &HttpApiClient::blockedUsersReceived, this, &ChatMainPage::onBlockedUsersReceived, Qt::UniqueConnection);
     connect(ui.chatDisplayWidget->verticalScrollBar(), &QScrollBar::rangeChanged, this, &ChatMainPage::onChatScrollRangeChanged);
-    connect(ui.chatDisplayWidget, &QTextBrowser::anchorClicked, this, [](const QUrl& url) {
+    connect(ui.chatDisplayWidget, &QTextBrowser::anchorClicked, this, [this](const QUrl& url) {
         if (url.scheme() == "user") {
             QString userUuid = url.authority();
             if (!userUuid.isEmpty()) {
-                HttpApiClient::instance()->getUserInfo(userUuid);
+                QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+                InfoRequestContext ctx;
+                ctx.targetId = userUuid;
+                ctx.requestId = requestId;
+                m_infoRequestContexts[requestId] = ctx;
+                HttpApiClient::instance()->getUserInfo(userUuid, requestId);
             }
         }
     });
@@ -100,9 +113,11 @@ ChatMainPage::ChatMainPage(const QString& username, const QString& token, const 
     });
     connect(m_wsClient, &WebSocketClient::groupRequestHandled, this, [this](bool success) {
         if (success) {
-            CustomDialog::information(this, "成功", "群聊请求已处理");
+            CustomDialog::information(this, QString::fromUtf8("成功"), QString::fromUtf8("群聊请求已处理"));
+            m_httpClient->getMyGroups();
+            m_httpClient->getConversations();
         } else {
-            CustomDialog::warning(this, "失败", "处理群聊请求失败");
+            CustomDialog::warning(this, QString::fromUtf8("失败"), QString::fromUtf8("处理群聊请求失败"));
         }
     });
     connect(m_wsClient, &WebSocketClient::kickedByServer, this, [this]() {
@@ -112,6 +127,84 @@ ChatMainPage::ChatMainPage(const QString& username, const QString& token, const 
         loginPage->setAttribute(Qt::WA_DeleteOnClose);
         loginPage->show();
         this->close();
+    });
+    connect(m_wsClient, &WebSocketClient::messageRecalledByOther, this, &ChatMainPage::onMessageRecalledByOther);
+    connect(m_wsClient, &WebSocketClient::messageRecalled, this, [this](bool success) {
+        if (success) {
+            qDebug() << "Message recalled successfully";
+        } else {
+            CustomDialog::warning(this, "错误", "撤回消息失败");
+        }
+    });
+    
+    connect(m_wsClient, &WebSocketClient::groupMemberAddedBroadcast, this, [this](const QJsonObject& event) {
+        m_httpClient->getMyGroups();
+        m_httpClient->getConversations();
+    });
+    
+    connect(m_wsClient, &WebSocketClient::groupMemberRemovedBroadcast, this, [this](const QJsonObject& event) {
+        m_httpClient->getMyGroups();
+        m_httpClient->getConversations();
+
+        QString removedGroupUuid = event["groupuuid"].toString();
+        if (m_currentConvUuid == removedGroupUuid) {
+            ui.messageEdit->setDisabled(true);
+            ui.sendButton->setDisabled(true);
+        }
+        m_verifiedConversations.remove(removedGroupUuid);
+    });
+    
+    connect(m_wsClient, &WebSocketClient::groupDissolvedBroadcast, this, [this](const QJsonObject& event) {
+        m_httpClient->getMyGroups();
+        m_httpClient->getConversations();
+
+        QString dissolvedGroupUuid = event["groupuuid"].toString();
+        if (m_currentConvUuid == dissolvedGroupUuid) {
+            ui.messageEdit->setDisabled(true);
+            ui.sendButton->setDisabled(true);
+        }
+        m_verifiedConversations.remove(dissolvedGroupUuid);
+    });
+    
+    connect(m_wsClient, &WebSocketClient::groupMemberLeftBroadcast, this, [this](const QJsonObject& event) {
+        m_httpClient->getMyGroups();
+        m_httpClient->getConversations();
+    });
+    
+    connect(m_wsClient, &WebSocketClient::groupCreatedBroadcast, this, [this](const QJsonObject& group) {
+        m_httpClient->getMyGroups();
+        m_httpClient->getConversations();
+    });
+
+    connect(m_wsClient, &WebSocketClient::friendRequestAcceptedBroadcast, this, [this](const QJsonObject& friendInfo) {
+        m_httpClient->getFriends();
+        m_httpClient->getConversations();
+        QString friendName = friendInfo["username"].toString();
+        CustomDialog::information(this, QString::fromUtf8("好友请求已同意"), QString::fromUtf8("您和 %1 现已成为好友，可以开始聊天了").arg(friendName));
+    });
+
+    connect(m_wsClient, &WebSocketClient::groupRequestAcceptedBroadcast, this, [this](const QJsonObject& groupInfo) {
+        m_httpClient->getMyGroups();
+        m_httpClient->getConversations();
+        QString groupName = groupInfo["name"].toString();
+        CustomDialog::information(this, QString::fromUtf8("加群请求已同意"), QString::fromUtf8("您已成功加入群聊 %1").arg(groupName));
+    });
+
+    connect(m_wsClient, &WebSocketClient::groupLeft, this, [this](bool success) {
+        if (success) {
+            if (!m_currentConvUuid.isEmpty()) {
+                m_verifiedConversations.remove(m_currentConvUuid);
+                m_currentConvUuid = "";
+                m_currentConvName = "";
+                ui.chatTitleLabel->setText(QString::fromUtf8("聊天"));
+                ui.chatDisplayWidget->clear();
+                ui.messageEdit->clear();
+                ui.messageEdit->setDisabled(true);
+                ui.sendButton->setDisabled(true);
+            }
+            m_httpClient->getConversations();
+            CustomDialog::information(this, QString::fromUtf8("提示"), QString::fromUtf8("已退出群聊"));
+        }
     });
 
     updateUserInfo();
@@ -413,6 +506,7 @@ void ChatMainPage::onConversationsReceived(const QJsonArray& conversations)
     m_conversationsList.clear();
     m_unreadCounts.clear();
     m_mutedConversations.clear();
+    m_verifiedConversations.clear();
 
     for (const QJsonValue& convValue : conversations) {
         QJsonObject convObj = convValue.toObject();
@@ -425,6 +519,10 @@ void ChatMainPage::onConversationsReceived(const QJsonArray& conversations)
         m_unreadCounts.insert(convUuid, unreadCount);
         if (isMuted) {
             m_mutedConversations.insert(convUuid);
+        }
+
+        if (!convUuid.isEmpty()) {
+            m_verifiedConversations.insert(convUuid);
         }
 
         if (!convUuid.isEmpty() && !targetName.isEmpty()) {
@@ -466,6 +564,15 @@ void ChatMainPage::on_conversationListWidget_itemClicked(QListWidgetItem* item)
     ui.chatTitleLabel->setText(m_currentConvName);
     ui.chatDisplayWidget->clear();
     ui.messageEdit->setFocus();
+
+    if (!m_verifiedConversations.contains(convUuid)) {
+        ui.messageEdit->setDisabled(true);
+        ui.sendButton->setDisabled(true);
+    } else {
+        ui.messageEdit->setDisabled(false);
+        ui.sendButton->setDisabled(false);
+    }
+
     markCurrentConversationAsRead();
 
     if (isConversationLoaded(convUuid)) {
@@ -510,9 +617,11 @@ void ChatMainPage::displayMessages(const QJsonArray& messages, const QString& co
         QString username = resolveUsername(fromUserUuid);
         QString content = messageObj["content"].toString();
         QString createdAt = messageObj["createdat"].toString();
+        QString messageType = messageObj["messagetype"].toString();
+        QString msguuid = messageObj["msguuid"].toString();
         bool isSelf = (fromUserUuid == m_userInfo["useruuid"].toString());
 
-        appendMessage(username, fromUserUuid, content, isSelf, createdAt);
+        appendMessage(username, fromUserUuid, msguuid, content, isSelf, createdAt, messageType);
     }
 }
 
@@ -521,16 +630,54 @@ void ChatMainPage::on_searchButton_clicked()
     showSearchDialog();
 }
 
+void ChatMainPage::on_createGroupButton_clicked()
+{
+    CreateGroupDialog dlg(m_friendsData, this);
+    connect(&dlg, &CreateGroupDialog::groupCreated, this, [this](const QJsonObject& group) {
+        QString groupUuid = group["uuid"].toString();
+        QString groupName = group["name"].toString();
+        QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        InfoRequestContext ctx;
+        ctx.targetId = groupUuid;
+        ctx.requestId = requestId;
+        m_infoRequestContexts[requestId] = ctx;
+        //m_httpClient->getGroupDetail(groupUuid, requestId);
+        m_httpClient->getMyGroups();
+    });
+    dlg.exec();
+}
+
 void ChatMainPage::showSearchDialog()
 {
     SearchDialog dlg(this);
+    connect(&dlg, &SearchDialog::userClicked, this, [this](const QString& userUuid) {
+        QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        InfoRequestContext ctx;
+        ctx.targetId = userUuid;
+        ctx.requestId = requestId;
+        m_infoRequestContexts[requestId] = ctx;
+        m_httpClient->getUserInfo(userUuid, requestId);
+    });
+    connect(&dlg, &SearchDialog::groupClicked, this, [this](const QString& groupUuid) {
+        QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+        InfoRequestContext ctx;
+        ctx.targetId = groupUuid;
+        ctx.requestId = requestId;
+        m_infoRequestContexts[requestId] = ctx;
+        m_httpClient->getGroupDetail(groupUuid, requestId);
+    });
     dlg.exec();
 }
 
 void ChatMainPage::on_profileButton_clicked()
 {
     QString selfUuid = m_userInfo["useruuid"].toString();
-    m_httpClient->getUserInfo(selfUuid);
+    QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    InfoRequestContext ctx;
+    ctx.targetId = selfUuid;
+    ctx.requestId = requestId;
+    m_infoRequestContexts[requestId] = ctx;
+    m_httpClient->getUserInfo(selfUuid, requestId);
 }
 
 void ChatMainPage::onFileUploaded(const QJsonObject& fileInfo)
@@ -554,13 +701,14 @@ void ChatMainPage::on_friendRequestsButton_clicked()
     m_pendingRequestResponses = 0;
     m_httpClient->getReceivedRequests();
     m_httpClient->getReceivedGroupRequests();
-    // 对话框等两个 HTTP 响应都到达后再显示（见 onReceivedRequestsReceived / onReceivedGroupRequestsReceived）
 }
 
-void ChatMainPage::onReceivedRequestsReceived(const QJsonArray& requests)
+void ChatMainPage::onReceivedFriendRequestsReceived(const QJsonArray& requests)
 {
+    qDebug() << "[DEBUG] onReceivedFriendRequestsReceived, count:" << requests.size();
     m_pendingFriendRequests.reset(new QJsonArray(requests));
     m_pendingRequestResponses++;
+    qDebug() << "[DEBUG] m_pendingRequestResponses:" << m_pendingRequestResponses;
     if (m_pendingRequestResponses >= 2) {
         showRequestsDialog();
     }
@@ -568,8 +716,10 @@ void ChatMainPage::onReceivedRequestsReceived(const QJsonArray& requests)
 
 void ChatMainPage::onReceivedGroupRequestsReceived(const QJsonArray& requests)
 {
+    qDebug() << "[DEBUG] onReceivedGroupRequestsReceived, count:" << requests.size();
     m_pendingGroupRequests.reset(new QJsonArray(requests));
     m_pendingRequestResponses++;
+    qDebug() << "[DEBUG] m_pendingRequestResponses:" << m_pendingRequestResponses;
     if (m_pendingRequestResponses >= 2) {
         showRequestsDialog();
     }
@@ -735,21 +885,32 @@ void ChatMainPage::showGroupRequestsDialog(const QJsonArray& requests)
 
 void ChatMainPage::showRequestsDialog()
 {
-    if (m_requestsDialog) return;
+    qDebug() << "[DEBUG] showRequestsDialog called";
+    if (m_requestsDialog) {
+        m_requestsDialog->raise();
+        m_requestsDialog->activateWindow();
+        return;
+    }
 
-    RequestDialog* dlg = new RequestDialog(this);
-    m_requestsDialog = dlg;
+    m_requestsDialog = new RequestDialog(this);
 
-    if (m_pendingFriendRequests)
-        dlg->setFriendRequests(*m_pendingFriendRequests);
-    if (m_pendingGroupRequests)
-        dlg->setGroupRequests(*m_pendingGroupRequests);
+    if (m_pendingFriendRequests) {
+        qDebug() << "[DEBUG] Setting friend requests, count:" << m_pendingFriendRequests->size();
+        m_requestsDialog->setFriendRequests(*m_pendingFriendRequests);
+    }
+    if (m_pendingGroupRequests) {
+        qDebug() << "[DEBUG] Setting group requests, count:" << m_pendingGroupRequests->size();
+        m_requestsDialog->setGroupRequests(*m_pendingGroupRequests);
+    }
 
-    connect(dlg, &QDialog::finished, this, [this]() {
-        m_requestsDialog = nullptr;
+    connect(m_requestsDialog, &QDialog::finished, this, [this]() {
+        if (m_requestsDialog) {
+            m_requestsDialog->deleteLater();
+            m_requestsDialog = nullptr;
+        }
     });
 
-    dlg->exec();
+    m_requestsDialog->show();
 }
 
 void ChatMainPage::on_settingsButton_clicked()
@@ -766,23 +927,19 @@ void ChatMainPage::on_showInfoButton_clicked()
 
     QJsonObject convObj = m_conversationsList.at(row);
     QString convType = convObj["type"].toString();
-    QString targetName = convObj["targetname"].toString();
     QString targetId = convObj["targetuuid"].toString();
-    m_pendingInfoIsMuted = convObj["ismuted"].toBool();
+
+    QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    InfoRequestContext ctx;
+    ctx.targetId = targetId;
+    ctx.requestId = requestId;
+    ctx.isMuted = convObj["ismuted"].toBool();
+    m_infoRequestContexts[requestId] = ctx;
 
     if (convType == "group") {
-        m_httpClient->getGroupDetail(targetId);
+        m_httpClient->getGroupDetail(targetId, requestId);
     } else {
-        bool isFriend = false;
-        for (const auto& f : m_friendsData) {
-            if (f.toObject()["frienduuid"].toString() == targetId) {
-                isFriend = true;
-                break;
-            }
-        }
-        m_pendingInfoIsFriend = isFriend;
-        m_pendingInfoTargetId = targetId;
-        m_httpClient->getFriendDetail(targetId);
+        m_httpClient->getFriendDetail(targetId, requestId);
     }
 }
 
@@ -803,6 +960,11 @@ void ChatMainPage::on_sendButton_clicked()
     QString convType = convObj["type"].toString();
     QString targetId = convObj["targetuuid"].toString();
 
+    if (!m_verifiedConversations.contains(targetId)) {
+        CustomDialog::warning(this, "提示", "该会话无法发送消息，请刷新后重试!");
+        return;
+    }
+
     if (convType == "group") {
         m_wsClient->sendGroupMessage(targetId, message);
     } else {
@@ -818,13 +980,26 @@ void ChatMainPage::onPrivateMessageSent(const QJsonObject& message)
     QString createdAt = message["createdat"].toString();
     QString username = m_userInfo["username"].toString();
     QString fromUserUuid = message["fromuseruuid"].toString();
-    appendMessage(username, fromUserUuid, content, true, createdAt);
+    QString messageType = message["messagetype"].toString();
+    QString msguuid = message["msguuid"].toString();
+    appendMessage(username, fromUserUuid, msguuid, content, true, createdAt, messageType);
 
     if (!m_currentConvUuid.isEmpty()) {
         QJsonArray cachedMessages = m_messagesCache.value(m_currentConvUuid);
         cachedMessages.append(message);
         m_messagesCache.insert(m_currentConvUuid, cachedMessages);
         saveMessagesToCache(m_currentConvUuid, cachedMessages);
+    }
+
+    for (int i = 0; i < m_conversationsList.size(); ++i) {
+        QJsonObject convObj = m_conversationsList.at(i);
+        if (convObj["targetuuid"].toString() == m_currentConvUuid) {
+            QJsonObject updatedConv = convObj;
+            updatedConv["lastmessage"] = content;
+            m_conversationsList.replace(i, updatedConv);
+            updateConversationItemDisplay(i);
+            break;
+        }
     }
 }
 
@@ -834,13 +1009,26 @@ void ChatMainPage::onGroupMessageSent(const QJsonObject& message)
     QString createdAt = message["createdat"].toString();
     QString username = m_userInfo["username"].toString();
     QString fromUserUuid = message["fromuseruuid"].toString();
-    appendMessage(username, fromUserUuid, content, true, createdAt);
+    QString messageType = message["messagetype"].toString();
+    QString msguuid = message["msguuid"].toString();
+    appendMessage(username, fromUserUuid, msguuid, content, true, createdAt, messageType);
 
     if (!m_currentConvUuid.isEmpty()) {
         QJsonArray cachedMessages = m_messagesCache.value(m_currentConvUuid);
         cachedMessages.append(message);
         m_messagesCache.insert(m_currentConvUuid, cachedMessages);
         saveMessagesToCache(m_currentConvUuid, cachedMessages);
+    }
+
+    for (int i = 0; i < m_conversationsList.size(); ++i) {
+        QJsonObject convObj = m_conversationsList.at(i);
+        if (convObj["targetuuid"].toString() == m_currentConvUuid) {
+            QJsonObject updatedConv = convObj;
+            updatedConv["lastmessage"] = content;
+            m_conversationsList.replace(i, updatedConv);
+            updateConversationItemDisplay(i);
+            break;
+        }
     }
 }
 
@@ -896,8 +1084,10 @@ void ChatMainPage::onPrivateMessagesBeforeReceived(const QString& convUuid, cons
             QString username = resolveUsername(fromUserUuid);
             QString content = messageObj["content"].toString();
             QString createdAt = messageObj["createdat"].toString();
+            QString messageType = messageObj["messagetype"].toString();
+            QString msguuid = messageObj["msguuid"].toString();
             bool isSelf = (fromUserUuid == m_userInfo["useruuid"].toString());
-            appendMessage(username, fromUserUuid, content, isSelf, createdAt);
+            appendMessage(username, fromUserUuid, msguuid, content, isSelf, createdAt,messageType);
         }
     }
 }
@@ -930,8 +1120,10 @@ void ChatMainPage::onGroupMessagesBeforeReceived(const QString& convUuid, const 
             QString username = resolveUsername(fromUserUuid);
             QString content = messageObj["content"].toString();
             QString createdAt = messageObj["createdat"].toString();
+            QString messageType = messageObj["messagetype"].toString();
+            QString msguuid = messageObj["msguuid"].toString();
             bool isSelf = (fromUserUuid == m_userInfo["useruuid"].toString());
-            appendMessage(username, fromUserUuid, content, isSelf, createdAt);
+            appendMessage(username, fromUserUuid, msguuid, content, isSelf, createdAt,messageType);
         }
     }
 }
@@ -1155,6 +1347,8 @@ void ChatMainPage::onNewPrivateMessageReceived(const QJsonObject& message)
 
     QString convUuid = fromUserUuid;
     QString content = message["content"].toString();
+    QString messageType = message["messagetype"].toString();
+    QString msguuid = message["msguuid"].toString();
 
     // ---- 关键修复：所有会话的消息都缓存（之前只缓存当前活跃会话）----
     if (m_messagesCache.contains(convUuid)) {
@@ -1168,7 +1362,7 @@ void ChatMainPage::onNewPrivateMessageReceived(const QJsonObject& message)
     if (m_currentConvUuid == convUuid) {
         QString username = resolveUsername(fromUserUuid);
         QString createdAt = message["createdat"].toString();
-        appendMessage(username, fromUserUuid, content, false, createdAt);
+        appendMessage(username, fromUserUuid, msguuid, content, false, createdAt, messageType);
         markCurrentConversationAsRead();
     }
 
@@ -1195,6 +1389,8 @@ void ChatMainPage::onNewGroupMessageReceived(const QJsonObject& message)
     QString username = resolveUsername(fromUserUuid);
     QString content = message["content"].toString();
     QString createdAt = message["createdat"].toString();
+    QString messageType = message["messagetype"].toString();
+    QString msguuid = message["msguuid"].toString();
 
     // ---- 关键修复：所有群聊会话的消息都缓存 ----
     if (m_messagesCache.contains(groupUuid)) {
@@ -1206,7 +1402,7 @@ void ChatMainPage::onNewGroupMessageReceived(const QJsonObject& message)
 
     if (m_currentConvUuid == groupUuid) {
         bool isSelf = (fromUserUuid == m_userInfo["useruuid"].toString());
-        appendMessage(username, fromUserUuid, content, isSelf, createdAt);
+        appendMessage(username, fromUserUuid, msguuid, content, isSelf, createdAt, messageType);
         markCurrentConversationAsRead();
     }
 
@@ -1303,45 +1499,82 @@ bool ChatMainPage::eventFilter(QObject *obj, QEvent *event)
 
 void ChatMainPage::appendMessage(const QString& username,
                                  const QString& userUuid,
+                                 const QString& msguuid,
                                  const QString& message,
                                  bool isSelf,
-                                 const QString& timeStr)
+                                 const QString& timeStr,
+                                 const QString& messageType)
 {
     QString displayTime = timeStr.isEmpty()
                               ? QDateTime::currentDateTime().toString("hh:mm")
                               : timeStr;
 
     QString displayName = isSelf ? "我" : username;
-    QString bubbleBg = isSelf ? "#E8F5ED" : "#FFFFFF";
 
+    if (messageType == "recalled") {
+        QString recallMsg = QString("%1撤回了一条消息").arg(displayName);
+        QString msgHtml = QString(
+                             "<table width='100%' cellpadding='0' cellspacing='0' style='margin:5px 0;'>"
+                             "<tr>"
+                             "<td align='center'>"
+                             "<span style='font-size:12px; color:#999;'>%1</span>"
+                             "</td>"
+                             "</tr>"
+                             "</table>"
+                             ).arg(recallMsg);
+
+        ui.chatDisplayWidget->append(msgHtml);
+
+        static const int UserPropertyMsguuid = QTextFormat::UserProperty + 1;
+        QTextCursor cursor(ui.chatDisplayWidget->document());
+        cursor.movePosition(QTextCursor::End);
+        cursor.select(QTextCursor::BlockUnderCursor);
+        QTextFrame *frame = cursor.currentFrame();
+        if (frame) {
+            QTextFrameFormat frameFormat = frame->frameFormat();
+            frameFormat.setProperty(UserPropertyMsguuid, msguuid);
+            frame->setFrameFormat(frameFormat);
+        }
+
+        auto *scrollBar = ui.chatDisplayWidget->verticalScrollBar();
+        scrollBar->setValue(scrollBar->maximum());
+        return;
+    }
+
+    QString bubbleBg = isSelf ? "#E8F5ED" : "#FFFFFF";
     QString safeMessage = message.toHtmlEscaped();
 
     QString msgHtml;
     if (isSelf) {
         msgHtml = QString(
-                      "<table width='100%%' cellpadding='0' cellspacing='0' style='margin:5px 0;'>"
+                      "<table width='100%' cellpadding='0' cellspacing='0' style='margin:8px 0;'>"
                       "<tr>"
-                      "<td width='*'></td>"
-                      "<td style='max-width:70%%; background-color:%1; padding:8px 12px; border-radius:15px; text-align:center;'>"
+                      "<td width='*'> </td>"
+                      "<td style='text-align:right;'>"
                       "  <div style='font-size:12px; color:#666; margin-bottom:4px;'>"
                       "    <a href='user://%2' style='color:#5EA07A; text-decoration:none;'>%3</a>"
                       "    <span style='color:#999; font-size:10px; margin-left:8px;'>%4</span>"
                       "  </div>"
-                      "  <div style='font-size:14px; color:#333; word-wrap:break-word;'>%5</div>"
+                      "  <div style='background-color:%1; padding:10px 18px; border-radius:18px; "
+                      "              display:inline-block; word-wrap:break-word; max-width:400px;'>"
+                      "    <span style='font-size:14px; color:#333;'>%5</span>"
+                      "  </div>"
                       "</td>"
                       "</tr>"
                       "</table>"
                       ).arg(bubbleBg, userUuid, displayName, displayTime, safeMessage);
     } else {
         msgHtml = QString(
-                      "<table width='100%%' cellpadding='0' cellspacing='0' style='margin:5px 0;'>"
+                      "<table width='100%' cellpadding='0' cellspacing='0' style='margin:8px 0;'>"
                       "<tr>"
-                      "<td style='max-width:70%%; background-color:%1; padding:8px 12px; border-radius:15px; text-align:center;'>"
-                      "  <div style='font-size:12px; color:#666; margin-bottom:4px;'>"
+                      "<td style='text-align:left;'>"
+                      "  <div style='font-size:12px; color:#666; margin-bottom:6px;'>"
                       "    <a href='user://%2' style='color:#5EA07A; text-decoration:none;'>%3</a>"
                       "    <span style='color:#999; font-size:10px; margin-left:8px;'>%4</span>"
                       "  </div>"
-                      "  <div style='font-size:14px; color:#333; word-wrap:break-word;'>%5</div>"
+                      "  <div style='display:inline-block; background-color:%1; padding:10px 14px; border-radius:15px; max-width:300px;'>"
+                      "    <div style='font-size:14px; color:#333; word-wrap:break-word;'>%5</div>"
+                      "  </div>"
                       "</td>"
                       "<td width='*'></td>"
                       "</tr>"
@@ -1350,11 +1583,67 @@ void ChatMainPage::appendMessage(const QString& username,
     }
 
     ui.chatDisplayWidget->append(msgHtml);
+
+    static const int UserPropertyMsguuid = QTextFormat::UserProperty + 1;
+    QTextCursor cursor(ui.chatDisplayWidget->document());
+    cursor.movePosition(QTextCursor::End);
+    QTextFrame *frame = cursor.currentFrame();
+    QTextTable *table = qobject_cast<QTextTable*>(frame);
+    if (!table) {
+        QTextFrame *parentFrame = frame;
+        while (parentFrame && !qobject_cast<QTextTable*>(parentFrame)) {
+            parentFrame = parentFrame->parentFrame();
+        }
+        table = qobject_cast<QTextTable*>(parentFrame);
+    }
+    if (table) {
+        QTextFrameFormat tableFormat = table->frameFormat();
+        tableFormat.setProperty(UserPropertyMsguuid, msguuid);
+        table->setFrameFormat(tableFormat);
+    }
+
     auto *scrollBar = ui.chatDisplayWidget->verticalScrollBar();
     scrollBar->setValue(scrollBar->maximum());
 }
 
-void ChatMainPage::onFriendDetailReceived(const QJsonObject& friendDetail)
+void ChatMainPage::onChatDisplayContextMenuRequested(const QPoint& pos)
+{
+    QTextCursor cursor = ui.chatDisplayWidget->cursorForPosition(pos);
+
+    QString msguuid;
+    QTextDocument *doc = ui.chatDisplayWidget->document();
+    static const int UserPropertyMsguuid = QTextFormat::UserProperty + 1;
+
+    QTextTable *table = qobject_cast<QTextTable*>(cursor.currentFrame());
+    if (!table) {
+        QTextFrame *frame = cursor.currentFrame();
+        while (frame && !qobject_cast<QTextTable*>(frame)) {
+            frame = frame->parentFrame();
+        }
+        table = qobject_cast<QTextTable*>(frame);
+    }
+
+    if (table) {
+        QTextFrameFormat tableFormat = table->frameFormat();
+        if (tableFormat.hasProperty(UserPropertyMsguuid)) {
+            msguuid = tableFormat.property(UserPropertyMsguuid).toString();
+        }
+    }
+
+    QMenu menu(this);
+    QAction *recallAction = new QAction("撤回", this);
+    recallAction->setEnabled(!msguuid.isEmpty());
+    menu.addAction(recallAction);
+
+    QAction *selectedAction = menu.exec(ui.chatDisplayWidget->mapToGlobal(pos));
+
+    if (selectedAction == recallAction && !msguuid.isEmpty()) {
+        qDebug() << "Recall action triggered for msguuid:" << msguuid;
+        m_wsClient->recallMessage(msguuid);
+    }
+}
+
+void ChatMainPage::onFriendDetailReceived(const QJsonObject& friendDetail, const QVariant& context)
 {
     QString username = friendDetail["username"].toString();
     QString userUuid = friendDetail["useruuid"].toString();
@@ -1369,52 +1658,142 @@ void ChatMainPage::onFriendDetailReceived(const QJsonObject& friendDetail)
         m_remarkCache[userUuid] = remark;
     }
 
-    if (m_pendingInfoTargetId != userUuid) return;
+    if (!context.isValid()) {
+        return;
+    }
 
-    bool isFriend = m_pendingInfoIsFriend && (m_pendingInfoTargetId == userUuid);
-    m_pendingInfoIsFriend = false;
-    m_pendingInfoTargetId.clear();
-    m_pendingInfoIsMuted = false;
+    QString requestId = context.toString();
+    if (m_infoRequestContexts.contains(requestId)) {
+        m_infoRequestContexts.remove(requestId);
+    }
 
-    if (isFriend)
-        InfoDialog::showFriendInfo(this, friendDetail, isMuted);
-    else
-        InfoDialog::showUserInfo(this, friendDetail, false);
+    QString currentConvUuid = m_currentConvUuid;
+    QString currentConvType = "private";
+    for (const auto& conv : m_conversationsList) {
+        if (conv["targetuuid"].toString() == currentConvUuid) {
+            currentConvType = conv["type"].toString();
+            break;
+        }
+    }
+    QJsonArray currentMessages = m_messagesCache.value(currentConvUuid);
+
+    InfoDialog::showFriendInfo(this, friendDetail, isMuted);
+
+    if (m_currentConvUuid != currentConvUuid && !currentConvUuid.isEmpty()) {
+        m_currentConvUuid = currentConvUuid;
+        if (!currentMessages.isEmpty()) {
+            displayMessages(currentMessages, currentConvType);
+        }
+    }
 }
 
-void ChatMainPage::onUserDetailReceived(const QJsonObject& user)
+void ChatMainPage::onUserDetailReceived(const QJsonObject& user, const QVariant& context)
 {
     QString username = user["username"].toString();
     QString userUuid = user["useruuid"].toString();
 
     if (!userUuid.isEmpty() && !username.isEmpty()) {
         m_userNameCache[userUuid] = {username, QDateTime::currentMSecsSinceEpoch()};
-        m_pendingNameLookups.remove(userUuid);
+    }
+    m_pendingNameLookups.remove(userUuid);
+
+    if (!context.isValid()) {
+        return;
     }
 
-    bool isCacheLookup = m_pendingNameLookups.contains(userUuid);
-    if (isCacheLookup) return;
-
+    QString requestId = context.toString();
+    if (!m_infoRequestContexts.contains(requestId)) {
+        return;
+    }
+    m_infoRequestContexts.remove(requestId);
     bool isSelf = (userUuid == m_userInfo["useruuid"].toString());
-    m_pendingInfoIsFriend = false;
-    m_pendingInfoTargetId.clear();
-    m_pendingInfoIsMuted = false;
+
+    QString currentConvUuid = m_currentConvUuid;
+    QString currentConvType = "private";
+    for (const auto& conv : m_conversationsList) {
+        if (conv["targetuuid"].toString() == currentConvUuid) {
+            currentConvType = conv["type"].toString();
+            break;
+        }
+    }
+    QJsonArray currentMessages = m_messagesCache.value(currentConvUuid);
 
     InfoDialog::showUserInfo(this, user, isSelf);
+
+    if (m_currentConvUuid != currentConvUuid && !currentConvUuid.isEmpty()) {
+        m_currentConvUuid = currentConvUuid;
+        if (!currentMessages.isEmpty()) {
+            displayMessages(currentMessages, currentConvType);
+        }
+    }
 }
 
-void ChatMainPage::onGroupDetailReceived(const QJsonObject& group)
+void ChatMainPage::onGroupDetailReceived(const QJsonObject& group, const QVariant& context)
 {
-    QString groupUuid = group["groupuuid"].toString();
+    QString groupUuid = group["uuid"].toString();
+
+    if (!context.isValid()) {
+        return;
+    }
+
+    QString requestId = context.toString();
+    if (!m_infoRequestContexts.contains(requestId)) {
+        return;
+    }
+    m_infoRequestContexts.remove(requestId);
+
+    bool isJoined = false;
     bool isMuted = false;
     for (const QJsonValue& convValue : m_conversationsList) {
         QJsonObject convObj = convValue.toObject();
         if (convObj["targetuuid"].toString() == groupUuid) {
             isMuted = convObj["ismuted"].toBool();
+            isJoined = true;
             break;
         }
     }
-    InfoDialog::showGroupInfo(this, group, isMuted);
+
+    QString currentConvUuid = m_currentConvUuid;
+    QString currentConvType = "private";
+    for (const auto& conv : m_conversationsList) {
+        if (conv["targetuuid"].toString() == currentConvUuid) {
+            currentConvType = conv["type"].toString();
+            break;
+        }
+    }
+    QJsonArray currentMessages = m_messagesCache.value(currentConvUuid);
+    QString currentUserUuid = m_userInfo["useruuid"].toString();
+    
+    if (!isJoined) {
+        InfoDialog::showUnjoinedGroupInfo(this, group);
+        
+        if (m_currentConvUuid != currentConvUuid && !currentConvUuid.isEmpty()) {
+            m_currentConvUuid = currentConvUuid;
+            if (!currentMessages.isEmpty()) {
+                displayMessages(currentMessages, currentConvType);
+            }
+        }
+        return;
+    }
+    
+    auto* http = HttpApiClient::instance();
+    auto* memberConn = new QMetaObject::Connection;
+    *memberConn = QObject::connect(http, &HttpApiClient::groupMembersReceived,
+        [this, group, isMuted, memberConn, currentConvUuid, currentConvType, currentMessages, currentUserUuid](const QJsonArray& members) {
+            QObject::disconnect(*memberConn);
+            delete memberConn;
+
+            InfoDialog::showGroupInfo(this, group, members, currentUserUuid, m_friendsData, isMuted);
+
+            if (m_currentConvUuid != currentConvUuid && !currentConvUuid.isEmpty()) {
+                m_currentConvUuid = currentConvUuid;
+                if (!currentMessages.isEmpty()) {
+                    displayMessages(currentMessages, currentConvType);
+                }
+            }
+        });
+    
+    http->getGroupMembers(groupUuid);
 }
 
 void ChatMainPage::onUsersSearched(const QJsonArray& users)
@@ -1738,15 +2117,43 @@ void ChatMainPage::onCacheLoadFinished(const QString& convUuid, QJsonArray messa
     markConversationLoaded(convUuid);
 
     // 只在当前活跃会话中显示，防止缓存加载到错误的会话窗口
+    // 注意：这里只显示缓存消息，不发送HTTP请求
+    // HTTP请求的发送由 loadConversationMessages 控制，避免重复请求导致消息重复
     if (convUuid == m_currentConvUuid) {
+        ui.chatDisplayWidget->clear();
         displayMessages(messages, convType);
     }
+}
 
-    // 缓存加载后始终拉一次服务端，保证数据最新且修复可能的磁盘缓存污染
-    if (convType == "group") {
-        m_httpClient->getGroupMessagesPage(convUuid, 1, MESSAGE_PAGE_SIZE);
-    } else {
-        m_httpClient->getPrivateMessagesPage(convUuid, 1, MESSAGE_PAGE_SIZE);
+void ChatMainPage::onMessageRecalledByOther(const QString& messageUuid)
+{
+    qDebug() << "onMessageRecalledByOther:" << messageUuid;
+
+    for (auto it = m_messagesCache.begin(); it != m_messagesCache.end(); ++it) {
+        QJsonArray& messages = it.value();
+        for (int i = 0; i < messages.size(); ++i) {
+            if (messages[i].toObject()["msguuid"].toString() == messageUuid) {
+                QJsonObject msgObj = messages[i].toObject();
+                msgObj["messagetype"] = "recalled";
+                msgObj["content"] = "";
+                messages[i] = msgObj;
+
+                if (it.key() == m_currentConvUuid) {
+                    ui.chatDisplayWidget->clear();
+                    QString convType = "private";
+                    for (const auto& conv : m_conversationsList) {
+                        if (conv["targetuuid"].toString() == m_currentConvUuid) {
+                            convType = conv["type"].toString();
+                            break;
+                        }
+                    }
+                    displayMessages(messages, convType);
+                }
+
+                saveMessagesToCache(it.key(), messages);
+                return;
+            }
+        }
     }
 }
 

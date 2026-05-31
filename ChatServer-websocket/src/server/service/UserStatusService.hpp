@@ -35,7 +35,7 @@ public:
         auto result = m_appClient->updateUserStatus(userId, request->status);
         #ifdef SQLCHECK
         if (!result->isSuccess()) {
-            OATPP_LOGD("UserStatusService", "Error: %s", result->getErrorMessage());
+            OATPP_LOGD("UserStatusService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("User does not exist");
         }
         #else
@@ -130,11 +130,11 @@ public:
         ASYNC_THROW_IF(id > 0, "User does not exist or has expired");
         auto result = m_appClient->getUserById(id);
         #ifdef SQLCHECK
-        if (result->isSuccess()) {
-            OATPP_LOGD("UserStatusService", "Error: %s", result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("UserStatusService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("User does not exist");
         }
-        if (result->hasMoreToFetch()) {
+        if (!result->hasMoreToFetch()) {
             OATPP_LOGD("UserStatusService", "Error: %s", "User does not exist");
             throw std::runtime_error("User does not exist");
         }
@@ -151,11 +151,11 @@ public:
         ASYNC_THROW_IF(id > 0, "User does not exist or has expired");
         auto result = m_appClient->updateUser(id, request->username, request->avatarUrl);
         #ifdef SQLCHECK
-        if (result->isSuccess()) {
-            OATPP_LOGD("UserStatusService", "Error: %s", result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("UserStatusService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("User does not exist");
         }
-        if (result->hasMoreToFetch()) {
+        if (!result->hasMoreToFetch()) {
             OATPP_LOGD("UserStatusService", "Error: %s", "User does not exist");
             throw std::runtime_error("User does not exist");
         }
@@ -165,11 +165,11 @@ public:
 
         auto updatedUser = m_appClient->getUserById(id);
         #ifdef SQLCHECK
-        if (updatedUser->isSuccess()) {
-            OATPP_LOGD("UserStatusService", "Error: %s", updatedUser->getErrorMessage());
+        if (!updatedUser->isSuccess()) {
+            OATPP_LOGD("UserStatusService", "Error: %s", updatedUser->getErrorMessage()->c_str());
             throw std::runtime_error("User does not exist");
         }
-        if (updatedUser->hasMoreToFetch()) {
+        if (!updatedUser->hasMoreToFetch()) {
             OATPP_LOGD("UserStatusService", "Error: %s", "User does not exist");
             throw std::runtime_error("User does not exist");
         }

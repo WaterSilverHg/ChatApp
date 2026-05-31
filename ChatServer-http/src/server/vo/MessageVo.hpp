@@ -8,7 +8,7 @@
 // 私聊消息
 class PrivateMessageVO : public oatpp::DTO {
     DTO_INIT(PrivateMessageVO, DTO)
-    DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(String, uuid, "msguuid");
     DTO_FIELD(String, fromUserUuid, "fromuseruuid");
     DTO_FIELD(String, username, "username");
     DTO_FIELD(String, avatarUrl, "avatarurl");
@@ -25,7 +25,7 @@ class PrivateMessageVO : public oatpp::DTO {
 // 群聊消息
 class GroupMessageVO : public oatpp::DTO {
     DTO_INIT(GroupMessageVO, DTO)
-        DTO_FIELD(String, uuid, "uuid");
+        DTO_FIELD(String, uuid, "msguuid");
     DTO_FIELD(String, fromUserUuid, "fromuseruuid");
     DTO_FIELD(String, username, "username");
     DTO_FIELD(String, avatarUrl, "avatarurl");

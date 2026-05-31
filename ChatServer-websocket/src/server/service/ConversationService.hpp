@@ -24,7 +24,7 @@ public:
         auto result = m_appClient->getConversations(id);
         #ifdef SQLCHECK
         if (!result->isSuccess()) {
-            OATPP_LOGD("ConversationService", "Error: %s", result->getErrorMessage());
+            OATPP_LOGD("ConversationService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("Failed to get conversation list");
         }
         #else

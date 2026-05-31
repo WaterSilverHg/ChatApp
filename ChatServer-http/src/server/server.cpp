@@ -32,7 +32,7 @@ static void run() {
 	OATPP_COMPONENT(std::shared_ptr<oatpp::data::mapping::ObjectMapper>, objectMapper);
 	OATPP_COMPONENT(std::shared_ptr<oatpp::orm::Executor>, executor);
 	OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis);
-	// OATPP_COMPONENT(std::shared_ptr<AppEmail>, email);
+	OATPP_COMPONENT(std::shared_ptr<AppEmail>, email);
 	//OATPP_COMPONENT(std::shared_ptr<AppWebSocket>, websocket);
 
 

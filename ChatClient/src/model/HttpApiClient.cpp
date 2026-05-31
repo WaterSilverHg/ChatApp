@@ -59,7 +59,7 @@ void HttpApiClient::sendHttpRequest(const QString& method, const QString& endpoi
 }
 
 void HttpApiClient::sendAuthenticatedRequest(const QString& method, const QString& endpoint,
-    const QJsonObject& data)
+    const QJsonObject& data, const QVariant& context)
 {
     QUrl url(m_serverUrl + endpoint);
     QNetworkRequest request(url);
@@ -87,6 +87,9 @@ void HttpApiClient::sendAuthenticatedRequest(const QString& method, const QStrin
 
     if (reply) {
         m_pendingReplies.append(reply);
+        if (context.isValid()) {
+            reply->setProperty("requestContext", context);
+        }
     }
 }
 
@@ -171,13 +174,17 @@ void HttpApiClient::onReplyFinished(QNetworkReply* reply)
         emit sentRequestsReceived(requests);
     }
     else if (url.contains("/api/friends/requests/received")) {
+        qDebug() << "[DEBUG] /api/friends/requests/received response:" << doc;
         QJsonArray requests = doc.isArray() ? doc.array() :
                               (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
+        qDebug() << "[DEBUG] Friend requests count:" << requests.size();
         emit receivedRequestsReceived(requests);
     }
     else if (url.contains("/api/groups/requests/received")) {
+        qDebug() << "[DEBUG] /api/groups/requests/received response:" << doc;
         QJsonArray requests = doc.isArray() ? doc.array() :
                               (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
+        qDebug() << "[DEBUG] Group requests count:" << requests.size();
         emit receivedGroupRequestsReceived(requests);
     }
     else if (url.contains("/api/groups/requests/sent")) {
@@ -197,7 +204,8 @@ void HttpApiClient::onReplyFinished(QNetworkReply* reply)
     }
     else if (url.contains("/api/friends/") && url.contains("/detail")) {
         QJsonObject friendDetail = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
-        emit friendDetailReceived(friendDetail);
+        QVariant context = reply->property("requestContext");
+        emit friendDetailReceived(friendDetail, context);
     }
     else if (url.contains("/api/friends/") && url.contains("/remark")) {
         if (obj.contains("message") && obj["message"].toString() != "success") {
@@ -301,7 +309,8 @@ void HttpApiClient::onReplyFinished(QNetworkReply* reply)
     }
     else if (url.contains("/api/groups/") && !url.contains("/members")) {
         QJsonObject groupData = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
-        emit groupDetailReceived(groupData);
+        QVariant context = reply->property("requestContext");
+        emit groupDetailReceived(groupData, context);
     }
     else if (url.contains("/api/groups/") && url.contains("/members")) {
         QJsonArray members = doc.isArray() ? doc.array() :
@@ -310,7 +319,8 @@ void HttpApiClient::onReplyFinished(QNetworkReply* reply)
     }
     else if (url.contains("/api/users/")) {
         QJsonObject userData = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
-        emit userInfoReceived(userData);
+        QVariant context = reply->property("requestContext");
+        emit userInfoReceived(userData, context);
     }
     else if (url.contains("/api/status") && !url.contains("/batch")) {
         QJsonObject statusData = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
@@ -364,7 +374,7 @@ void HttpApiClient::registerUser(const QString& username, const QString& email,
     data["username"] = username;
     data["email"] = email;
     data["password"] = password;
-    if (!verificationCode.isEmpty()) data["verificationCode"] = verificationCode;
+    if (!verificationCode.isEmpty()) data["verificationcode"] = verificationCode;
     sendHttpRequest("POST", "/api/auth/register", data);
 }
 
@@ -391,9 +401,9 @@ void HttpApiClient::resetPassword(const QString& email, const QString& code, con
 {
     QJsonObject data;
     data["email"] = email;
-    data["verificationCode"] = code;
-    data["oldPassword"] = oldPassword;
-    data["newPassword"] = newPassword;
+    data["verificationcode"] = code;
+    data["oldpassword"] = oldPassword;
+    data["newpassword"] = newPassword;
     sendHttpRequest("POST", "/api/auth/reset-password", data);
 }
 
@@ -489,7 +499,7 @@ void HttpApiClient::createFriendGroup(const QString& name, const QJsonArray& mem
 {
     QJsonObject data;
     data["name"] = name;
-    if (!memberUuids.isEmpty()) data["memberUuids"] = memberUuids;
+    if (!memberUuids.isEmpty()) data["memberuuids"] = memberUuids;
     sendAuthenticatedRequest("POST", "/api/friends/groups", data);
 }
 
@@ -501,7 +511,7 @@ void HttpApiClient::deleteFriendGroup(const QString& groupName)
 void HttpApiClient::renameFriendGroup(const QString& oldName, const QString& newName)
 {
     QJsonObject data;
-    data["newName"] = newName;
+    data["newname"] = newName;
     sendAuthenticatedRequest("PUT", QString("/api/friends/groups/%1").arg(oldName), data);
 }
 
@@ -557,9 +567,9 @@ void HttpApiClient::getMyGroups()
     sendAuthenticatedRequest("GET", "/api/groups/list", QJsonObject());
 }
 
-void HttpApiClient::getGroupDetail(const QString& groupUuid)
+void HttpApiClient::getGroupDetail(const QString& groupUuid, const QVariant& context)
 {
-    sendAuthenticatedRequest("GET", QString("/api/groups/%1").arg(groupUuid), QJsonObject());
+    sendAuthenticatedRequest("GET", QString("/api/groups/%1").arg(groupUuid), QJsonObject(), context);
 }
 
 void HttpApiClient::getGroupMembers(const QString& groupUuid)
@@ -581,14 +591,14 @@ void HttpApiClient::getMultipleStatuses(const QJsonArray& userIds)
     sendAuthenticatedRequest("POST", "/api/status/batch", data);
 }
 
-void HttpApiClient::getFriendDetail(const QString& friendUuid)
+void HttpApiClient::getFriendDetail(const QString& friendUuid, const QVariant& context)
 {
-    sendAuthenticatedRequest("GET", QString("/api/friends/%1/detail").arg(friendUuid), QJsonObject());
+    sendAuthenticatedRequest("GET", QString("/api/friends/%1/detail").arg(friendUuid), QJsonObject(), context);
 }
 
-void HttpApiClient::getUserInfo(const QString& userUuid)
+void HttpApiClient::getUserInfo(const QString& userUuid, const QVariant& context)
 {
-    sendAuthenticatedRequest("GET", QString("/api/users/info/%1").arg(userUuid), QJsonObject());
+    sendAuthenticatedRequest("GET", QString("/api/users/info/%1").arg(userUuid), QJsonObject(), context);
 }
 
 void HttpApiClient::searchUsers(const QString& keyword)

@@ -62,7 +62,7 @@ public:
             auto updateResult = m_appClient->updateFriendRequestToPending(user_id, tuser_id, request->message);
             #ifdef SQLCHECK
             if (!updateResult->isSuccess()) {
-                OATPP_LOGD("FriendService", "Error: %s", updateResult->getErrorMessage());
+                OATPP_LOGD("FriendService", "Error: %s", updateResult->getErrorMessage()->c_str());
                 throw std::runtime_error("Failed to update friend request");
             }
             #else
@@ -75,7 +75,7 @@ public:
             auto result = m_appClient->sendFriendRequest(user_id, tuser_id, request->message);
             #ifdef SQLCHECK
             if (!result->isSuccess()) {
-                OATPP_LOGD("FriendService", "Error: %s", result->getErrorMessage());
+                OATPP_LOGD("FriendService", "Error: %s", result->getErrorMessage()->c_str());
                 throw std::runtime_error("Failed to send friend request");
             }
             if (!result->hasMoreToFetch()) {
@@ -116,12 +116,11 @@ public:
         return result->fetch<oatpp::Vector<oatpp::Object<FriendResponseVO>>>();
     }
 
-    oatpp::Boolean handleFriendRequest(const oatpp::String& currentUserIdHeader, const oatpp::String& requestUuid, const oatpp::String& status) {
+    oatpp::Object<FriendRequestIdsDTO> handleFriendRequest(const oatpp::String& currentUserIdHeader, const oatpp::String& requestUuid, const oatpp::String& status) {
         ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
         ASYNC_THROW_IF(requestUuid && !requestUuid->empty(), "Request ID cannot be empty");
         ASYNC_THROW_IF(status && !status->empty(), "Status cannot be empty");
 
-        // Validate status
         if (status != "accepted" && status != "rejected" && status != "canceled") {
             ASYNC_THROW_IF(false, "Invalid status: must be accepted, rejected, or canceled");
         }
@@ -129,14 +128,12 @@ public:
         auto currentUserId = m_idCache->getUserId(currentUserIdHeader);
         ASYNC_THROW_IF(currentUserId > 0, "User does not exist or has been deactivated");
 
-        // 整个操作在一个事务中，防止 UPDATE 成功但 friendship/会话创建失败导致不一致
         auto transaction = m_appClient->beginTransaction();
 
-        // Update friend request with identity check and status guard
         auto updateResult = m_appClient->handleFriendRequest(requestUuid, status, currentUserId);
         #ifdef SQLCHECK
         if (!updateResult->isSuccess()) {
-            OATPP_LOGD("FriendService", "Error: %s", updateResult->getErrorMessage());
+            OATPP_LOGD("FriendService", "Error: %s", updateResult->getErrorMessage()->c_str());
             transaction.rollback();
             throw std::runtime_error("Friend request not found, already processed, or permission denied");
         }
@@ -152,12 +149,10 @@ public:
         }
         #endif
 
-        // Get from_user_id and to_user_id from the result
         auto ids = updateResult->fetch<oatpp::Vector<oatpp::Object<FriendRequestIdsDTO>>>()[0];
         oatpp::Int64 fromUserId = ids->fromUserId;
         oatpp::Int64 toUserId = ids->toUserId;
 
-        // If accepted, create friendship and conversations (all in one transaction)
         if (status == "accepted") {
             auto checkFriendshipResult = m_appClient->checkFriendshipStatus(fromUserId, toUserId);
             if (!checkFriendshipResult->isSuccess()) {
@@ -193,7 +188,7 @@ public:
         }
 
         transaction.commit();
-        return true;
+        return ids;
     }
 
     oatpp::Vector<oatpp::Object<FriendInfoVO>> getFriends(const oatpp::String& currentUserIdHeader) {

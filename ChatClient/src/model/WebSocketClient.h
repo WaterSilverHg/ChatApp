@@ -2,6 +2,7 @@
 #define WEBSOCKETCLIENT_H
 
 #include "../global.h"
+#include <QThread>
 
 class WebSocketClient : public QObject
 {
@@ -9,6 +10,7 @@ class WebSocketClient : public QObject
 
 public:
     static WebSocketClient* instance();
+    ~WebSocketClient();
 
     void setWsUrl(const QString& url);
     QString wsUrl() const { return m_wsUrl; }
@@ -34,6 +36,8 @@ public:
     void addGroupMembers(const QString& groupuuid, const QJsonArray& useruuids);
     void removeGroupMember(const QString& groupuuid, const QString& useruuid);
     void setMemberRole(const QString& groupuuid, const QString& targetuseruuid, const QString& role);
+    void promoteGroupMember(const QString& groupuuid, const QString& targetuseruuid);
+    void demoteGroupMember(const QString& groupuuid, const QString& targetuseruuid);
     void joinGroup(const QString& groupuuid);
     void leaveGroup(const QString& groupuuid);
 
@@ -68,6 +72,15 @@ signals:
     void newPrivateMessageReceived(const QJsonObject& message);
     void newGroupMessageReceived(const QJsonObject& message);
     void messageRecalled(bool success);
+    void messageRecalledByOther(const QString& messageUuid);
+    
+    void groupMemberAddedBroadcast(const QJsonObject& event);
+    void groupMemberRemovedBroadcast(const QJsonObject& event);
+    void groupDissolvedBroadcast(const QJsonObject& event);
+    void groupMemberLeftBroadcast(const QJsonObject& event);
+    void groupCreatedBroadcast(const QJsonObject& group);
+    void friendRequestAcceptedBroadcast(const QJsonObject& friendInfo);
+    void groupRequestAcceptedBroadcast(const QJsonObject& groupInfo);
 
 private slots:
     void onConnected();
@@ -77,7 +90,6 @@ private slots:
 
 private:
     explicit WebSocketClient(QObject* parent = nullptr);
-    ~WebSocketClient() = default;
     WebSocketClient(const WebSocketClient&) = delete;
     WebSocketClient& operator=(const WebSocketClient&) = delete;
 
@@ -91,6 +103,7 @@ private:
 
     QWebSocket* m_webSocket;
     QString m_wsUrl;
+    QThread* m_wsThread;
 };
 
 #endif // WEBSOCKETCLIENT_H

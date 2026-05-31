@@ -6,6 +6,8 @@
 #include "../model/WebSocketClient.h"
 #include "../model/AsyncAvatarLoader.h"
 #include "../model/MessageCacheManager.h"
+#include "RequestDialog.h"
+#include "CreateGroupDialog.h"
 
 class ChatMainPage : public QWidget
 {
@@ -32,16 +34,17 @@ private slots:
     void onError(const QString& errorMessage, int errorCode);
 
     void on_searchButton_clicked();
+    void on_createGroupButton_clicked();
     void on_profileButton_clicked();
     void on_friendRequestsButton_clicked();
     void on_settingsButton_clicked();
     void on_showInfoButton_clicked();
 
-    void onReceivedRequestsReceived(const QJsonArray& requests);
+    void onReceivedFriendRequestsReceived(const QJsonArray& requests);
     void onReceivedGroupRequestsReceived(const QJsonArray& requests);
-    void onFriendDetailReceived(const QJsonObject& friendDetail);
-    void onUserDetailReceived(const QJsonObject& user);
-    void onGroupDetailReceived(const QJsonObject& group);
+    void onFriendDetailReceived(const QJsonObject& friendDetail, const QVariant& context = QVariant());
+    void onUserDetailReceived(const QJsonObject& user, const QVariant& context = QVariant());
+    void onGroupDetailReceived(const QJsonObject& group, const QVariant& context = QVariant());
     void onUsersSearched(const QJsonArray& users);
     void onGroupsSearched(const QJsonArray& groups);
 
@@ -53,6 +56,8 @@ private slots:
     void onMyGroupsListReceived(const QJsonArray& groups);
     void onAvatarLoaded(const QString& cacheKey, QPixmap pixmap);
     void onCacheLoadFinished(const QString& convUuid, QJsonArray messages);
+    void onMessageRecalledByOther(const QString& messageUuid);
+    void onChatDisplayContextMenuRequested(const QPoint& pos);
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -60,7 +65,14 @@ protected:
 
 private:
     void setupConversationList();
-    void appendMessage(const QString& username, const QString& userUuid, const QString& message, bool isSelf, const QString& timeStr = "");
+    //void appendMessage(const QString& username, const QString& userUuid, const QString& message, bool isSelf, const QString& timeStr = "");
+    void appendMessage(const QString& username,
+                       const QString& userUuid,
+                       const QString& msguuid,
+                       const QString& message,
+                       bool isSelf,
+                       const QString& timeStr,
+                       const QString& messageType);
     QString getCurrentTime();
     void updateUserInfo();
     void showFriendRequestsDialog(const QJsonArray& requests);
@@ -76,6 +88,7 @@ private:
     void markCurrentConversationAsRead();
     QPixmap getOrPlaceholderAvatar(const QString& avatarUrl, const QString& name, const QSize& size);
     void loadAvatarAsync(QLabel* label, const QString& url, const QString& name, const QSize& size);
+
 
     // ---- 用户名缓存（UUID → 用户名，3 分钟 TTL）----
     struct UserNameEntry {
@@ -118,6 +131,7 @@ private:
     QList<QJsonObject> m_conversationsList;
     QMap<QString, QJsonArray> m_messagesCache;
     QSet<QString> m_loadedConversations;
+    QSet<QString> m_verifiedConversations;
     QMap<QString, int> m_unreadCounts;
     HttpApiClient* m_httpClient;
     WebSocketClient* m_wsClient;
@@ -129,13 +143,17 @@ private:
     bool m_isLoadingOlderMessages = false;
     QSharedPointer<QJsonArray> m_pendingFriendRequests;
     QSharedPointer<QJsonArray> m_pendingGroupRequests;
-    QDialog* m_requestsDialog = nullptr;
+    RequestDialog* m_requestsDialog = nullptr;
     int m_pendingRequestResponses = 0;
 
-    // ---- 查看信息时区分好友/非好友 ----
-    bool m_pendingInfoIsFriend = false;
-    QString m_pendingInfoTargetId;
-    bool m_pendingInfoIsMuted = false;
+    // ---- 查看信息请求上下文 ----
+    struct InfoRequestContext {
+        QString targetId;
+        bool isFriend = false;
+        bool isMuted = false;
+        QString requestId;
+    };
+    QHash<QString, InfoRequestContext> m_infoRequestContexts;
 
     // ---- 左侧边栏：聊天 / 好友 / 群聊 / 拉黑 ----
     enum SidebarTab { TabChats, TabFriends, TabGroups, TabBlocked };

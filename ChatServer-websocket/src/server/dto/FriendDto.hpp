@@ -18,7 +18,7 @@ class FriendRequestDTO : public oatpp::DTO {
  //发送好友请求
 class SendFriendRequestDTO : public oatpp::DTO {
     DTO_INIT(SendFriendRequestDTO, DTO)
-    DTO_FIELD(String, toUserUuid, "toUserUuid");
+    DTO_FIELD(String, toUserUuid, "touseruuid");
     DTO_FIELD(String, message, "message");
 };
 
@@ -52,7 +52,7 @@ class UpdateFriendGroupDTO : public oatpp::DTO {
 // 处理好友请求 (accept/reject/cancel)
 class HandleFriendRequestDTO : public oatpp::DTO {
     DTO_INIT(HandleFriendRequestDTO, DTO)
-    DTO_FIELD(String, reqUuid, "reqUuid");  // 好友请求UUID
+    DTO_FIELD(String, reqUuid, "requuid");  // 好友请求UUID
     DTO_FIELD(String, status, "status");    // accepted/rejected/canceled
 };
 

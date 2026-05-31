@@ -59,9 +59,61 @@ SearchDialog::SearchDialog(QWidget* parent)
     });
 }
 
+SearchDialog::SearchDialog(const QJsonArray& friendsList, QWidget* parent)
+    : QDialog(parent),
+      m_friendsList(friendsList),
+      m_friendsOnlyMode(true)
+{
+    ui.setupUi(this);
+    setWindowIcon(QIcon(":/chat.svg"));
+    setWindowTitle("选择好友");
+    
+    ui.tabWidget->setCurrentIndex(0);
+    ui.groupResultList->hide();
+    ui.tabWidget->hide();
+    
+    connect(ui.searchBtn, &QPushButton::clicked, this, &SearchDialog::onSearchClicked);
+    connect(ui.closeBtn, &QPushButton::clicked, this, &QDialog::reject);
+    connect(ui.userResultList, &QListWidget::itemClicked, this, &SearchDialog::onUserResultSelected);
+    
+    onSearchClicked();
+}
+
 void SearchDialog::onSearchClicked()
 {
-    QString keyword = ui.searchInput->text().trimmed();
+    QString keyword = ui.searchInput->text().trimmed().toLower();
+    
+    if (m_friendsOnlyMode) {
+        ui.userResultList->clear();
+        
+        for (const auto& friendObj : m_friendsList) {
+            QJsonObject obj = friendObj.toObject();
+            QString name = obj["username"].toString();
+            QString uuid = obj["useruuid"].toString();
+            QString remark = obj["remark"].toString();
+            
+            QString displayName = remark.isEmpty() ? name : remark;
+            
+            if (keyword.isEmpty() || displayName.toLower().contains(keyword) || name.toLower().contains(keyword)) {
+                QString displayText = displayName;
+                if (!remark.isEmpty()) {
+                    displayText = QString("%1 (%2)").arg(remark, name);
+                }
+                
+                QListWidgetItem* item = new QListWidgetItem(QString("[好友] %1").arg(displayText));
+                obj["_type"] = "user";
+                item->setData(Qt::UserRole, QJsonDocument(obj).toJson(QJsonDocument::Compact));
+                item->setData(Qt::UserRole + 1, uuid);
+                ui.userResultList->addItem(item);
+            }
+        }
+        
+        if (ui.userResultList->count() == 0) {
+            ui.userResultList->addItem(new QListWidgetItem("未找到好友"));
+        }
+        return;
+    }
+    
     if (keyword.isEmpty()) {
         QMessageBox::warning(this, "提示", "请输入搜索关键词");
         return;
@@ -86,6 +138,11 @@ void SearchDialog::onUserResultSelected()
     m_selectedUser = obj;
     m_selectedGroup = QJsonObject();
     ui.actionBtn->setEnabled(true);
+
+    QString userUuid = obj["useruuid"].toString();
+    if (!userUuid.isEmpty()) {
+        emit userClicked(userUuid);
+    }
 }
 
 void SearchDialog::onGroupResultSelected()
@@ -96,6 +153,11 @@ void SearchDialog::onGroupResultSelected()
     m_selectedGroup = obj;
     m_selectedUser = QJsonObject();
     ui.actionBtn->setEnabled(true);
+
+    QString groupUuid = obj["uuid"].toString();
+    if (!groupUuid.isEmpty()) {
+        emit groupClicked(groupUuid);
+    }
 }
 
 void SearchDialog::onActionClicked()

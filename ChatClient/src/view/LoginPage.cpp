@@ -1,5 +1,6 @@
 #include "LoginPage.h"
 #include "../model/UserSession.h"
+#include <QMessageBox>
 
 LoginPage::LoginPage(QWidget *parent)
     : QWidget(parent)
@@ -9,17 +10,15 @@ LoginPage::LoginPage(QWidget *parent)
     ui.setupUi(this);
     setWindowTitle("登录");
     setWindowIcon(QIcon(":/chat.svg"));
-//    setStyleSheet(StyleConst::DIALOG_STYLE);
-
-//    ui.loginButton->setStyleSheet(StyleConst::BUTTON_STYLE);
-//    ui.registerLink->setStyleSheet("color: #1A4D1A; text-decoration: underline; background: none; border: none;");
-//    ui.emailEdit->setStyleSheet(StyleConst::LINEEDIT_STYLE);
-//    ui.passwordEdit->setStyleSheet(StyleConst::LINEEDIT_STYLE);
 
     m_httpClient->setServerUrl(HTTP_BASE_URL);
     m_wsClient->setWsUrl(WEBSOCKET_URL);
 
+    connect(ui.historyComboBox, &QComboBox::currentTextChanged, this, &LoginPage::onHistoryAccountSelected);
+    connect(ui.clearHistoryBtn, &QPushButton::clicked, this, &LoginPage::onClearHistoryClicked);
+
     loadSavedCredentials();
+    updateHistoryComboBox();
 }
 
 void LoginPage::connectSignals()
@@ -40,7 +39,6 @@ void LoginPage::disconnectSignals()
 
 void LoginPage::showEvent(QShowEvent *event)
 {
-    // 重置按钮状态
     ui.loginButton->setEnabled(true);
     ui.loginButton->setText("登录");
     connectSignals();
@@ -55,6 +53,34 @@ void LoginPage::hideEvent(QHideEvent *event)
 
 LoginPage::~LoginPage()
 {}
+
+void LoginPage::onHistoryAccountSelected(const QString& email)
+{
+    if (email.isEmpty() || email == "-- 选择历史账号 --") {
+        return;
+    }
+
+    if (m_loginHistory.contains(email)) {
+        QString password = m_loginHistory[email];
+        ui.emailEdit->setText(email);
+        ui.passwordEdit->setText(password);
+    }
+}
+
+void LoginPage::onClearHistoryClicked()
+{
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this, "确认", "确定要清除所有登录历史记录吗？",
+        QMessageBox::Yes | QMessageBox::No);
+
+    if (reply == QMessageBox::Yes) {
+        m_loginHistory.clear();
+        saveAllCredentials();
+        updateHistoryComboBox();
+        ui.emailEdit->clear();
+        ui.passwordEdit->clear();
+    }
+}
 
 void LoginPage::on_showPasswordCheckBox_toggled(bool checked)
 {
@@ -91,7 +117,7 @@ void LoginPage::onLoginSuccess(const QJsonObject& data)
 
     UserSession::instance()->setToken(token);
     UserSession::instance()->setUserData(user);
-    //记录邮箱和密码，方便下次直接登录
+
     saveCredentials(ui.emailEdit->text().trimmed(), ui.passwordEdit->text());
 
     m_wsClient->connectWebSocket();
@@ -128,7 +154,7 @@ void LoginPage::keyPressEvent(QKeyEvent *event)
         on_loginButton_clicked();
     } else if (event->key() == Qt::Key_Tab) {
         QWidget* currentWidget = focusWidget();
-        
+
         if (currentWidget == ui.emailEdit) {
             ui.passwordEdit->setFocus();
             event->accept();
@@ -163,13 +189,29 @@ void LoginPage::loadSavedCredentials()
         QJsonDocument doc = QJsonDocument::fromJson(data);
         if (!doc.isNull()) {
             QJsonObject obj = doc.object();
-            QString email = obj["email"].toString();
-            QString password = obj["password"].toString();
-            if (!email.isEmpty()) {
-                ui.emailEdit->setText(email);
+            QJsonObject history = obj["history"].toObject();
+
+            m_loginHistory.clear();
+            for (auto it = history.begin(); it != history.end(); ++it) {
+                QString email = it.key();
+                QJsonObject accountInfo = it.value().toObject();
+                QString password = accountInfo["password"].toString();
+                if (!email.isEmpty() && !password.isEmpty()) {
+                    m_loginHistory[email] = password;
+                }
             }
-            if (!password.isEmpty()) {
-                ui.passwordEdit->setText(password);
+
+            QString lastEmail = obj["lastEmail"].toString();
+            QString lastPassword = obj["lastPassword"].toString();
+            if (!lastEmail.isEmpty()) {
+                ui.emailEdit->setText(lastEmail);
+                if (!lastPassword.isEmpty()) {
+                    ui.passwordEdit->setText(lastPassword);
+                }
+            } else if (!m_loginHistory.isEmpty()) {
+                QString mostRecentEmail = m_loginHistory.firstKey();
+                ui.emailEdit->setText(mostRecentEmail);
+                ui.passwordEdit->setText(m_loginHistory[mostRecentEmail]);
             }
         }
         file.close();
@@ -178,14 +220,58 @@ void LoginPage::loadSavedCredentials()
 
 void LoginPage::saveCredentials(const QString& email, const QString& password)
 {
+    if (email.isEmpty() || password.isEmpty()) {
+        return;
+    }
+
+    m_loginHistory.remove(email);
+    m_loginHistory.insert(email, password);
+
+    while (m_loginHistory.size() > 10) {
+        m_loginHistory.remove(m_loginHistory.firstKey());
+    }
+
+    saveAllCredentials();
+}
+
+void LoginPage::saveAllCredentials()
+{
     QString filePath = getCredentialFilePath();
     QFile file(filePath);
     if (file.open(QIODevice::WriteOnly)) {
         QJsonObject obj;
-        obj["email"] = email;
-        obj["password"] = password;
+
+        QJsonObject history;
+        for (auto it = m_loginHistory.begin(); it != m_loginHistory.end(); ++it) {
+            QJsonObject accountInfo;
+            accountInfo["password"] = it.value();
+            history[it.key()] = accountInfo;
+        }
+        obj["history"] = history;
+
+        if (!m_loginHistory.isEmpty()) {
+            QString mostRecentEmail = m_loginHistory.lastKey();
+            obj["lastEmail"] = mostRecentEmail;
+            obj["lastPassword"] = m_loginHistory[mostRecentEmail];
+        }
+
         QJsonDocument doc(obj);
         file.write(doc.toJson());
         file.close();
     }
+}
+
+void LoginPage::updateHistoryComboBox()
+{
+    ui.historyComboBox->blockSignals(true);
+    ui.historyComboBox->clear();
+
+    ui.historyComboBox->addItem("-- 选择历史账号 --");
+
+    QStringList emails = m_loginHistory.keys();
+    for (const QString& email : emails) {
+        ui.historyComboBox->addItem(email);
+    }
+
+    ui.historyComboBox->blockSignals(false);
 }

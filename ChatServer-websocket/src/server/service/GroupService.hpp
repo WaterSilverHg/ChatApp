@@ -38,7 +38,7 @@ public:
         #ifdef SQLCHECK
         if (!result->isSuccess()) {
             transaction.rollback();
-            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("Failed to create group");
         }
         if (!result->hasMoreToFetch()) {
@@ -66,7 +66,7 @@ public:
         if (!ownerResult->isSuccess()) {
             transaction.rollback();
             #ifdef SQLCHECK
-            OATPP_LOGD("GroupService", "Error: %s", ownerResult->getErrorMessage());
+            OATPP_LOGD("GroupService", "Error: %s", ownerResult->getErrorMessage()->c_str());
             #endif
             throw std::runtime_error("Failed to add group owner");
         }
@@ -75,7 +75,7 @@ public:
         if (!ownerConvResult->isSuccess()) {
             transaction.rollback();
         #ifdef SQLCHECK
-            OATPP_LOGD("GroupService", "Error: %s", ownerConvResult->getErrorMessage());
+            OATPP_LOGD("GroupService", "Error: %s", ownerConvResult->getErrorMessage()->c_str());
         #endif
             throw std::runtime_error("Failed to create owner conversation");
         }
@@ -86,7 +86,7 @@ public:
             if (!memberResult->isSuccess()) {
                 transaction.rollback();
             #ifdef SQLCHECK
-                OATPP_LOGD("GroupService", "Error: %s", memberResult->getErrorMessage());
+                OATPP_LOGD("GroupService", "Error: %s", memberResult->getErrorMessage()->c_str());
             #endif
                 throw std::runtime_error("Failed to add member");
             }
@@ -94,7 +94,7 @@ public:
             if (!convResult->isSuccess()) {
                 transaction.rollback();
             #ifdef SQLCHECK
-                OATPP_LOGD("GroupService", "Error: %s", convResult->getErrorMessage());
+                OATPP_LOGD("GroupService", "Error: %s", convResult->getErrorMessage()->c_str());
             #endif
                 throw std::runtime_error("Failed to create conversation");
             }
@@ -110,7 +110,7 @@ public:
 
         auto result = m_appPostgresql->getMyGroups(userId);
         #ifdef SQLCHECK
-        OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+        OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
         #endif
         ASYNC_THROW_IF(result->isSuccess(), "Failed to get group list");
 
@@ -134,7 +134,7 @@ public:
         auto memberCheck = m_appPostgresql->checkUserInGroup(groupId, userId);
         #ifdef SQLCHECK
         if (memberCheck->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", memberCheck->getErrorMessage());
+            OATPP_LOGD("GroupService", "Error: %s", memberCheck->getErrorMessage()->c_str());
             throw std::runtime_error("You are not a member of this group and do not have permission to view");
         }
         if (memberCheck->hasMoreToFetch()) {
@@ -147,11 +147,11 @@ public:
 
         auto result = m_appPostgresql->getGroupDetail(groupId);
         #ifdef SQLCHECK
-        if (result->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("Group does not exist");
         }
-        if (result->hasMoreToFetch()) {
+        if (!result->hasMoreToFetch()) {
             OATPP_LOGD("GroupService", "Error: %s", "Group does not exist");
             throw std::runtime_error("Group does not exist");
         }
@@ -175,8 +175,8 @@ public:
         //感觉可以优化成一次查询
         auto result = m_appPostgresql->updateGroup(groupId, userId, request->name, request->description, request->avatarUrl, request->maxMembers, request->isPublic);
         #ifdef SQLCHECK
-        if (result->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("No permission to modify group information");
         }
         #else
@@ -185,11 +185,11 @@ public:
 
         auto updatedGroup = m_appPostgresql->getGroupDetail(groupId);
         #ifdef SQLCHECK
-        if (updatedGroup->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", updatedGroup->getErrorMessage());
+        if (!updatedGroup->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", updatedGroup->getErrorMessage()->c_str());
             throw std::runtime_error("Group does not exist");
         }
-        if (updatedGroup->hasMoreToFetch()) {
+        if (!updatedGroup->hasMoreToFetch()) {
             OATPP_LOGD("GroupService", "Error: %s", "Group does not exist");
             throw std::runtime_error("Group does not exist");
         }
@@ -213,7 +213,7 @@ public:
         auto dsresult = m_appPostgresql->dissolveGroup(groupId, userId);
         #ifdef SQLCHECK
         if (dsresult->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", dsresult->getErrorMessage());
+            OATPP_LOGD("GroupService", "Error: %s", dsresult->getErrorMessage()->c_str());
             throw std::runtime_error("No permission to dissolve the group");
         }
         #else
@@ -238,8 +238,8 @@ public:
 
         auto result = m_appPostgresql->getGroupMembers(groupId);
         #ifdef SQLCHECK
-        if (result->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("Group does not exist");
         }
         #else
@@ -254,12 +254,28 @@ public:
         ASYNC_THROW_IF(groupUuid && !groupUuid->empty(), "Group ID cannot be empty");
         ASYNC_THROW_IF(request, "Request parameters cannot be empty");
         ASYNC_THROW_IF(request->userUuids && !request->userUuids->empty(), "User ID list cannot be empty");
-        
+
         auto userId = m_idCache->getUserId(currentUserIdHeader);
         ASYNC_THROW_IF(userId > 0, "User does not exist or has been deactivated");
 
         auto groupId = m_idCache->getGroupId(groupUuid);
         ASYNC_THROW_IF(groupId > 0, "Group does not exist or has been deactivated");
+
+        // 检查当前用户是否有权限（群主或管理员）
+        auto roleResult = m_appPostgresql->getUserRoleInGroup(groupId, userId);
+        #ifdef SQLCHECK
+        if (!roleResult->isSuccess() || !roleResult->hasMoreToFetch()) {
+            throw std::runtime_error("You are not a member of this group and do not have permission to add members");
+        }
+        #else
+        if (!roleResult->isSuccess() || !roleResult->hasMoreToFetch()) {
+            throw std::runtime_error("You are not a member of this group and do not have permission to add members");
+        }
+        #endif
+        auto role = roleResult->fetch<oatpp::Vector<oatpp::Object<UserRoleDTO>>>()[0]->role;
+        if (role != "owner" && role != "admin") {
+            throw std::runtime_error("Only group owner or admin can add members");
+        }
 
         // 在事务中执行所有操作
         auto transaction = m_appPostgresql->beginTransaction();
@@ -272,13 +288,13 @@ public:
             }
             auto result = m_appPostgresql->addGroupMember(groupId, memberId, "member");
             #ifdef SQLCHECK
-            if (result->isSuccess()) {
+            if (!result->isSuccess()) {
                 transaction.rollback();
-                OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+                OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
                 throw std::runtime_error("Failed to add member");
             }
             #else
-            if (result->isSuccess()) {
+            if (!result->isSuccess()) {
                 transaction.rollback();
                 throw std::runtime_error("Failed to add member");
             }
@@ -287,7 +303,7 @@ public:
             if (!convResult->isSuccess()) {
                 transaction.rollback();
                 #ifdef SQLCHECK
-                OATPP_LOGD("GroupService", "Error: %s", convResult->getErrorMessage());
+                OATPP_LOGD("GroupService", "Error: %s", convResult->getErrorMessage()->c_str());
                 #endif
                 throw std::runtime_error("Failed to create conversation for member");
             }
@@ -311,15 +327,15 @@ public:
         auto targetUserId = m_idCache->getUserId(targetUserUuid);
         ASYNC_THROW_IF(targetUserId > 0, "Target user does not exist or has been deactivated");
 
-        ASYNC_THROW_IF(currentUserId == targetUserId, "You cannot remove yourself through this interface, please use the quit group interface");
+        ASYNC_THROW_IF(currentUserId != targetUserId, "You cannot remove yourself through this interface, please use the quit group interface");
 
         auto result = m_appPostgresql->removeGroupMember(groupId, targetUserId, currentUserId);
         #ifdef SQLCHECK
-        if (result->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("You do not have permission to remove this member or member does not exist");
         }
-        if (!result->hasMoreToFetch()) {
+        if (result->hasMoreToFetch()) {
             OATPP_LOGD("GroupService", "Error: %s", "You do not have permission to remove this member or member does not exist");
             throw std::runtime_error("You do not have permission to remove this member or member does not exist");
         }
@@ -329,8 +345,8 @@ public:
 
         auto deleteConvResult = m_appPostgresql->deleteConversationForGroupMember(groupId, targetUserId);
         #ifdef SQLCHECK
-        if (deleteConvResult->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", deleteConvResult->getErrorMessage());
+        if (!deleteConvResult->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", deleteConvResult->getErrorMessage()->c_str());
             throw std::runtime_error("Failed to delete conversation");
         }
         #else
@@ -356,15 +372,15 @@ public:
         auto targetUserId = m_idCache->getUserId(request->targetUserUuid);
         ASYNC_THROW_IF(targetUserId > 0, "Target user does not exist or has been deactivated");
 
-        ASYNC_THROW_IF(currentUserId == targetUserId, "Cannot modify your own role");
+        ASYNC_THROW_IF(currentUserId != targetUserId, "Cannot modify your own role");
 
         auto currentRoleResult = m_appPostgresql->getUserRoleInGroup(groupId, currentUserId);
         #ifdef SQLCHECK
-        if (currentRoleResult->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", currentRoleResult->getErrorMessage());
+        if (!currentRoleResult->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", currentRoleResult->getErrorMessage()->c_str());
             throw std::runtime_error("You are not a member of this group and do not have permission to operate");
         }
-        if (currentRoleResult->hasMoreToFetch()) {
+        if (!currentRoleResult->hasMoreToFetch()) {
             OATPP_LOGD("GroupService", "Error: %s", "You are not a member of this group and do not have permission to operate");
             throw std::runtime_error("You are not a member of this group and do not have permission to operate");
         }
@@ -377,11 +393,11 @@ public:
 
         auto targetRoleResult = m_appPostgresql->getUserRoleInGroup(groupId, targetUserId);
         #ifdef SQLCHECK
-        if (targetRoleResult->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", targetRoleResult->getErrorMessage());
+        if (!targetRoleResult->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", targetRoleResult->getErrorMessage()->c_str());
             throw std::runtime_error("Target user is not in this group");
         }
-        if (targetRoleResult->hasMoreToFetch()) {
+        if (!targetRoleResult->hasMoreToFetch()) {
             OATPP_LOGD("GroupService", "Error: %s", "Target user is not in this group");
             throw std::runtime_error("Target user is not in this group");
         }
@@ -389,14 +405,15 @@ public:
         ASYNC_THROW_IF(targetRoleResult->isSuccess() && targetRoleResult->hasMoreToFetch(), "Target user is not in this group");
         #endif
         auto targetRole = targetRoleResult->fetch<oatpp::Vector<oatpp::Object<UserRoleDTO>>>()[0]->role;
-
-        ASYNC_THROW_IF((request->role == "admin" && targetRole == "owner"), "Cannot set the group owner as an administrator");
-        ASYNC_THROW_IF(request->role != targetRole, targetRole == "admin" ? "User is already an administrator" : "User is already a regular member");
+        //暂为只有群主能提权，且只能提为管理员,降权只能将管理员降为普通成员
+        ASYNC_THROW_IF((request->role == "admin" && targetRole == "member")||(request->role == "member"&&targetRole == "admin"), "Invalid permission setting");
+        //ASYNC_THROW_IF((request->role == "admin" && targetRole == "owner"), "Cannot set the group owner as an administrator");
+        //ASYNC_THROW_IF(request->role != targetRole, targetRole == "admin" ? "User is already an administrator" : "User is already a regular member");
 
         auto result = m_appPostgresql->setMemberRole(groupId, targetUserId, request->role);
         #ifdef SQLCHECK
-        if (result->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("Failed to set role");
         }
         #else
@@ -418,8 +435,8 @@ public:
 
         auto result = m_appPostgresql->addGroupMember(groupId, currentUserId, "member");
         #ifdef SQLCHECK
-        if (result->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("Failed to join group");
         }
         #else
@@ -466,7 +483,7 @@ public:
             #ifdef SQLCHECK
             if (dissolveResult->isSuccess()) {
                 transaction.rollback();
-                OATPP_LOGD("GroupService", "Error: %s", dissolveResult->getErrorMessage());
+                OATPP_LOGD("GroupService", "Error: %s", dissolveResult->getErrorMessage()->c_str());
                 throw std::runtime_error("No permission to dissolve the group");
             }
             #else
@@ -484,7 +501,7 @@ public:
         #ifdef SQLCHECK
         if (!currentRoleResult->isSuccess() || !currentRoleResult->hasMoreToFetch()) {
             transaction.rollback();
-            OATPP_LOGD("GroupService", "Error: %s", currentRoleResult->getErrorMessage());
+            OATPP_LOGD("GroupService", "Error: %s", currentRoleResult->getErrorMessage()->c_str());
             throw std::runtime_error("You are not a member of this group and do not have permission to operate");
         }
         #else
@@ -526,7 +543,7 @@ public:
                 #ifdef SQLCHECK
                 if (!updateResult->isSuccess() || !updateResult->hasMoreToFetch()) {
                     transaction.rollback();
-                    OATPP_LOGD("GroupService", "Error: %s", updateResult->getErrorMessage());
+                    OATPP_LOGD("GroupService", "Error: %s", updateResult->getErrorMessage()->c_str());
                     throw std::runtime_error("Failed to set new group owner - member may have left");
                 }
                 #else
@@ -543,13 +560,21 @@ public:
         #ifdef SQLCHECK
         if (!result->isSuccess()) {
             transaction.rollback();
-            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("Failed to leave group");
         }
         #else
         if (!result->isSuccess()) {
             transaction.rollback();
             throw std::runtime_error("Failed to leave group");
+        }
+        #endif
+
+        // 删除该用户的群会话记录
+        auto convResult = m_appPostgresql->deleteConversationForGroupMember(groupId, currentUserId);
+        #ifdef SQLCHECK
+        if (!convResult->isSuccess()) {
+            OATPP_LOGD("GroupService", "Warning: Failed to delete conversation: %s", convResult->getErrorMessage()->c_str());
         }
         #endif
 
@@ -579,8 +604,8 @@ public:
         // 检查是否已有请求
         auto checkResult = m_appPostgresql->checkGroupRequestExists(groupId, userId);
         #ifdef SQLCHECK
-        if (checkResult->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", checkResult->getErrorMessage());
+        if (!checkResult->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", checkResult->getErrorMessage()->c_str());
             throw std::runtime_error("检查群聊请求失败");
         }
         #else
@@ -590,8 +615,8 @@ public:
         if (checkResult->hasMoreToFetch()) {
             auto updateResult = m_appPostgresql->updateGroupRequestToPending(groupId, userId, request->message);
             #ifdef SQLCHECK
-            if (updateResult->isSuccess()) {
-                OATPP_LOGD("GroupService", "Error: %s", updateResult->getErrorMessage());
+            if (!updateResult->isSuccess()) {
+                OATPP_LOGD("GroupService", "Error: %s", updateResult->getErrorMessage()->c_str());
                 throw std::runtime_error("发送群聊请求失败");
             }
             #else
@@ -602,8 +627,8 @@ public:
 
         auto result = m_appPostgresql->sendGroupRequest(groupId, userId, request->message);
         #ifdef SQLCHECK
-        if (result->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage());
+        if (!result->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", result->getErrorMessage()->c_str());
             throw std::runtime_error("发送群聊请求失败");
         }
         #else
@@ -613,8 +638,7 @@ public:
         return true;
     }
 
-    // 处理群聊请求（通过/拒绝）
-    oatpp::Boolean handleGroupRequest(const oatpp::String& currentUserIdHeader, const oatpp::String& requestUuid, const oatpp::Object<HandleGroupRequestDTO>& request) {
+    oatpp::Object<GroupRequestDetailDTO> handleGroupRequest(const oatpp::String& currentUserIdHeader, const oatpp::String& requestUuid, const oatpp::Object<HandleGroupRequestDTO>& request) {
         ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "用户ID不能为空");
         ASYNC_THROW_IF(requestUuid && !requestUuid->empty(), "请求ID不能为空");
         ASYNC_THROW_IF(request && request->status, "处理状态不能为空");
@@ -623,14 +647,13 @@ public:
         auto userId = m_idCache->getUserId(currentUserIdHeader);
         ASYNC_THROW_IF(userId > 0, "用户不存在或已失效");
 
-        // 先获取请求详情
         auto requestDetailResult = m_appPostgresql->getGroupRequestByUuid(requestUuid);
         #ifdef SQLCHECK
-        if (requestDetailResult->isSuccess()) {
-            OATPP_LOGD("GroupService", "Error: %s", requestDetailResult->getErrorMessage());
+        if (!requestDetailResult->isSuccess()) {
+            OATPP_LOGD("GroupService", "Error: %s", requestDetailResult->getErrorMessage()->c_str());
             throw std::runtime_error("群聊请求不存在");
         }
-        if (requestDetailResult->hasMoreToFetch()) {
+        if (!requestDetailResult->hasMoreToFetch()) {
             OATPP_LOGD("GroupService", "Error: %s", "群聊请求不存在");
             throw std::runtime_error("群聊请求不存在");
         }
@@ -641,46 +664,41 @@ public:
 
         auto transaction = m_appPostgresql->beginTransaction();
 
-        // 更新请求状态
         auto updateResult = m_appPostgresql->handleGroupRequest(requestUuid, request->status, userId);
         if (!updateResult->isSuccess()) {
             transaction.rollback();
             #ifdef SQLCHECK
-            OATPP_LOGD("GroupService", "Error: %s", updateResult->getErrorMessage());
+            OATPP_LOGD("GroupService", "Error: %s", updateResult->getErrorMessage()->c_str());
             #endif
             throw std::runtime_error("处理群聊请求失败");
         }
 
-        // 检查是否真的更新了行（通过 getKnownCount()）
         if (updateResult->getKnownCount() == 0) {
             transaction.rollback();
             throw std::runtime_error("请求已被处理或不存在");
         }
 
-        // 如果是批准，添加成员并创建会话
         if (request->status == "accepted") {
-            // 添加成员到 group_members（带冲突处理）
             auto addMemberResult = m_appPostgresql->addGroupMemberWithConflict(requestDetail->groupId, requestDetail->requesterId, "member");
             if (!addMemberResult->isSuccess()) {
                 transaction.rollback();
                 #ifdef SQLCHECK
-                OATPP_LOGD("GroupService", "Error: %s", addMemberResult->getErrorMessage());
+                OATPP_LOGD("GroupService", "Error: %s", addMemberResult->getErrorMessage()->c_str());
                 #endif
                 throw std::runtime_error("添加群成员失败");
             }
 
-            // 创建群聊会话
             auto convResult = m_appPostgresql->createGroupConversation(requestDetail->requesterId, requestDetail->groupId);
             if (!convResult->isSuccess()) {
                 transaction.rollback();
                 #ifdef SQLCHECK
-                OATPP_LOGD("GroupService", "Error: %s", convResult->getErrorMessage());
+                OATPP_LOGD("GroupService", "Error: %s", convResult->getErrorMessage()->c_str());
                 #endif
                 throw std::runtime_error("创建群聊会话失败");
             }
         }
 
         transaction.commit();
-        return true;
+        return requestDetail;
     }
 };

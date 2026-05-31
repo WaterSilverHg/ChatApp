@@ -108,6 +108,38 @@ public:
     }
 
     // ----------------------------------------------------------
+    // BIGINT id → User UUID
+    // ----------------------------------------------------------
+    oatpp::String getUserUuid(oatpp::Int64 userId) {
+        if (userId <= 0) return nullptr;
+        try {
+            auto r = m_appClient->getUserUuidById(userId);
+            if (r->isSuccess() && r->hasMoreToFetch()) {
+                return r->fetch<oatpp::Vector<oatpp::Object<UuidDTO>>>()[0]->uuid;
+            }
+        } catch (const std::exception& e) {
+            OATPP_LOGE("UuidIdCache", "getUserUuid failed: %s", e.what());
+        }
+        return nullptr;
+    }
+
+    // ----------------------------------------------------------
+    // BIGINT id → Group UUID
+    // ----------------------------------------------------------
+    oatpp::String getGroupUuid(oatpp::Int64 groupId) {
+        if (groupId <= 0) return nullptr;
+        try {
+            auto r = m_appClient->getGroupUuidById(groupId);
+            if (r->isSuccess() && r->hasMoreToFetch()) {
+                return r->fetch<oatpp::Vector<oatpp::Object<UuidDTO>>>()[0]->uuid;
+            }
+        } catch (const std::exception& e) {
+            OATPP_LOGE("UuidIdCache", "getGroupUuid failed: %s", e.what());
+        }
+        return nullptr;
+    }
+
+    // ----------------------------------------------------------
     // 主动失效某条缓存（例如用户信息变更后）
     // ----------------------------------------------------------
     void invalidateUser(const oatpp::String& uuid) { delKey("user", uuid); }

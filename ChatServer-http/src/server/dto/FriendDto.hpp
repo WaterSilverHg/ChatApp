@@ -55,7 +55,7 @@ class SentFriendRequestDetailDTO : public oatpp::DTO {
  //发送好友请求
 class SendFriendRequestDTO : public oatpp::DTO {
     DTO_INIT(SendFriendRequestDTO, DTO)
-    DTO_FIELD(String, toUserUuid, "toUserUuid");
+    DTO_FIELD(String, toUserUuid, "touseruuid");
     DTO_FIELD(String, message, "message");
 };
 
@@ -88,18 +88,18 @@ class UpdateFriendGroupDTO : public oatpp::DTO {
 class CreateFriendGroupDTO : public oatpp::DTO {
     DTO_INIT(CreateFriendGroupDTO, DTO)
     DTO_FIELD(String, name, "name");
-    DTO_FIELD(Vector<String>, memberUuids, "memberUuids");
+    DTO_FIELD(Vector<String>, memberUuids, "memberuuids");
 };
 
 class RenameFriendGroupDTO : public oatpp::DTO {
     DTO_INIT(RenameFriendGroupDTO, DTO)
-    DTO_FIELD(String, newName, "newName");
+    DTO_FIELD(String, newName, "newname");
 };
 
 // 分组名列表项
 class GroupNameVO : public oatpp::DTO {
     DTO_INIT(GroupNameVO, DTO)
-    DTO_FIELD(String, groupName, "groupName");
+    DTO_FIELD(String, groupName, "groupname");
 };
 
 #include OATPP_CODEGEN_END(DTO)

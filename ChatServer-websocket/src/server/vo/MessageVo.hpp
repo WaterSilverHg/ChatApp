@@ -7,7 +7,7 @@
 // 私聊消息
 class PrivateMessageVO : public oatpp::DTO {
     DTO_INIT(PrivateMessageVO, DTO)
-    DTO_FIELD(String, uuid, "uuid");
+    DTO_FIELD(String, msguuid, "msguuid");
     DTO_FIELD(String, fromUserUuid, "fromuseruuid");
     DTO_FIELD(String, toUserUuid, "touseruuid");
     DTO_FIELD(String, messageType, "messagetype");
@@ -23,7 +23,7 @@ class PrivateMessageVO : public oatpp::DTO {
 // 群聊消息
 class GroupMessageVO : public oatpp::DTO {
     DTO_INIT(GroupMessageVO, DTO)
-        DTO_FIELD(String, uuid, "uuid");
+        DTO_FIELD(String, uuid, "msguuid");
     DTO_FIELD(String, fromUserUuid, "fromuseruuid");
     DTO_FIELD(String, groupUuid, "groupuuid");
     DTO_FIELD(String, messageType, "messagetype"); // text, image, file
@@ -52,6 +52,18 @@ class OfflineMessageVO : public oatpp::DTO {
     DTO_FIELD(Int64, fileSize, "filesize");
     DTO_FIELD(String, fileName, "filename");
     DTO_FIELD(String, mimeType, "mimetype");
+};
+
+// 消息详情（用于撤回广播）
+class MessageInfoVO : public oatpp::DTO {
+    DTO_INIT(MessageInfoVO, DTO)
+    DTO_FIELD(Int64, id, "id");
+    DTO_FIELD(String, msgUuid, "msguuid");
+    DTO_FIELD(Int64, fromUserId, "fromuserid");
+    DTO_FIELD(String, fromUserUuid, "fromuseruuid");
+    DTO_FIELD(Int64, toUserId, "touserid");
+    DTO_FIELD(Int64, toGroupId, "togroupid");
+    DTO_FIELD(String, messageType, "messagetype");
 };
 
 #include OATPP_CODEGEN_END(DTO) 

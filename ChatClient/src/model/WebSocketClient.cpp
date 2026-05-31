@@ -1,12 +1,24 @@
 #include "WebSocketClient.h"
 #include "UserSession.h"
+#include <QMetaObject>
 
 WebSocketClient* WebSocketClient::s_instance = nullptr;
 
 WebSocketClient::WebSocketClient(QObject* parent)
-    : QObject(parent), m_webSocket(nullptr)
+    : QObject(parent), m_webSocket(nullptr), m_wsThread(new QThread())
 {
     initResponseHandlers();
+    moveToThread(m_wsThread);
+    m_wsThread->start();
+}
+
+WebSocketClient::~WebSocketClient()
+{
+    if (m_wsThread) {
+        m_wsThread->quit();
+        m_wsThread->wait();
+        delete m_wsThread;
+    }
 }
 
 WebSocketClient* WebSocketClient::instance()
@@ -24,37 +36,52 @@ void WebSocketClient::setWsUrl(const QString& url)
 
 void WebSocketClient::connectWebSocket()
 {
-    if (m_webSocket) {
-        disconnect(m_webSocket, nullptr, this, nullptr);
-        m_webSocket->deleteLater();
-    }
+    QMetaObject::invokeMethod(this, [this]() {
+        if (m_webSocket) {
+            disconnect(m_webSocket, nullptr, this, nullptr);
+            m_webSocket->close();
+            m_webSocket->deleteLater();
+        }
 
-    m_webSocket = new QWebSocket();
+        m_webSocket = new QWebSocket();
+        m_webSocket->moveToThread(this->thread());
 
-    connect(m_webSocket, &QWebSocket::connected, this, &WebSocketClient::onConnected);
-    connect(m_webSocket, &QWebSocket::disconnected, this, &WebSocketClient::onDisconnected);
-    connect(m_webSocket, &QWebSocket::textMessageReceived, this, &WebSocketClient::onTextMessageReceived);
-    connect(m_webSocket, &QWebSocket::errorOccurred, this, &WebSocketClient::onError);
+        connect(m_webSocket, &QWebSocket::connected, this, &WebSocketClient::onConnected);
+        connect(m_webSocket, &QWebSocket::disconnected, this, &WebSocketClient::onDisconnected);
+        connect(m_webSocket, &QWebSocket::textMessageReceived, this, &WebSocketClient::onTextMessageReceived);
+        connect(m_webSocket, &QWebSocket::errorOccurred, this, &WebSocketClient::onError);
 
-    QUrl url(m_wsUrl);
-    QNetworkRequest request(url);
-    QString token = UserSession::instance()->token();
-    if (!token.isEmpty()) {
-        request.setRawHeader("Authorization", QString("Bearer %1").arg(token).toUtf8());
-    }
+        QUrl url(m_wsUrl);
+        QNetworkRequest request(url);
+        QString token = UserSession::instance()->token();
+        if (!token.isEmpty()) {
+            request.setRawHeader("Authorization", QString("Bearer %1").arg(token).toUtf8());
+        }
 
-    m_webSocket->open(request);
+        m_webSocket->open(request);
+    }, Qt::QueuedConnection);
 }
 
 void WebSocketClient::disconnectWebSocket()
 {
-    if (m_webSocket) {
-        m_webSocket->close();
-    }
+    QMetaObject::invokeMethod(this, [this]() {
+        if (m_webSocket) {
+            m_webSocket->close();
+        }
+    }, Qt::QueuedConnection);
 }
 
 bool WebSocketClient::isConnected() const
 {
+    if (thread() != QThread::currentThread()) {
+        bool result = false;
+        QMetaObject::invokeMethod(const_cast<WebSocketClient*>(this), [this, &result]() {
+            if (m_webSocket) {
+                result = m_webSocket->state() == QAbstractSocket::ConnectedState;
+            }
+        }, Qt::BlockingQueuedConnection);
+        return result;
+    }
     if (m_webSocket) {
         return m_webSocket->state() == QAbstractSocket::ConnectedState;
     }
@@ -63,17 +90,19 @@ bool WebSocketClient::isConnected() const
 
 void WebSocketClient::sendMessage(const QString& type, const QJsonObject& data)
 {
-    if (!m_webSocket || m_webSocket->state() != QAbstractSocket::ConnectedState) {
-        emit errorOccurred("WebSocket not connected");
-        return;
-    }
+    QMetaObject::invokeMethod(this, [this, type, data]() {
+        if (!m_webSocket || m_webSocket->state() != QAbstractSocket::ConnectedState) {
+            emit errorOccurred("WebSocket not connected");
+            return;
+        }
 
-    QJsonObject message = data;
-    message["type"] = type;
-    message["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+        QJsonObject message = data;
+        message["type"] = type;
+        message["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
 
-    QJsonDocument doc(message);
-    m_webSocket->sendTextMessage(doc.toJson(QJsonDocument::Compact));
+        QJsonDocument doc(message);
+        m_webSocket->sendTextMessage(doc.toJson(QJsonDocument::Compact));
+    }, Qt::QueuedConnection);
 }
 
 void WebSocketClient::onConnected()
@@ -101,11 +130,50 @@ void WebSocketClient::onTextMessageReceived(const QString& message)
 
     QString type = obj["type"].toString();
 
+    if (type == "new_group_member") {
+        QJsonObject event = QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object();
+        emit groupMemberAddedBroadcast(event);
+        return;
+    }
+    
+    if (type == "group_member_removed") {
+        QJsonObject event = QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object();
+        emit groupMemberRemovedBroadcast(event);
+        return;
+    }
+    
+    if (type == "group_dissolved") {
+        QJsonObject event = QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object();
+        emit groupDissolvedBroadcast(event);
+        return;
+    }
+    
+    if (type == "group_member_left") {
+        QJsonObject event = QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object();
+        emit groupMemberLeftBroadcast(event);
+        return;
+    }
+    
+    if (type == "group_created") {
+        QJsonObject group = QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object();
+        emit groupCreatedBroadcast(group);
+        return;
+    }
+
+    if (type == "friend_request_accepted") {
+        QJsonObject friendInfo = QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object();
+        emit friendRequestAcceptedBroadcast(friendInfo);
+        return;
+    }
+
+    if (type == "group_request_accepted") {
+        QJsonObject groupInfo = QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object();
+        emit groupRequestAcceptedBroadcast(groupInfo);
+        return;
+    }
+
     auto it = m_responseHandlers.find(type);
     if (it != m_responseHandlers.end()) {
-        // if (type.startsWith("new_")) {
-        //     obj["success"] = true;
-        // }
         bool success = obj["success"].toBool();
         if (!success) {
             QString errorMessage = obj["content"].toString();
@@ -204,6 +272,11 @@ void WebSocketClient::initResponseHandlers()
         emit messageRecalled(obj["success"].toBool());
     };
 
+    m_responseHandlers["message_recalled"] = [this](const QJsonObject& obj) {
+        QString messageUuid = obj["content"].toString();
+        emit messageRecalledByOther(messageUuid);
+    };
+
     m_responseHandlers["error"] = [this](const QJsonObject& obj) {
         QString errorMsg = obj["content"].toString();
         emit errorOccurred(errorMsg);
@@ -213,7 +286,7 @@ void WebSocketClient::initResponseHandlers()
 void WebSocketClient::sendFriendRequest(const QString& toUserUuid, const QString& message)
 {
     QJsonObject data;
-    data["toUserUuid"] = toUserUuid;
+    data["touseruuid"] = toUserUuid;
     if (!message.isEmpty()) data["message"] = message;
     sendMessage("send_friend_request", data);
 }
@@ -221,7 +294,7 @@ void WebSocketClient::sendFriendRequest(const QString& toUserUuid, const QString
 void WebSocketClient::handleFriendRequest(const QString& reqUuid, const QString& status)
 {
     QJsonObject data;
-    data["reqUuid"] = reqUuid;
+    data["requuid"] = reqUuid;
     data["status"] = status;
     sendMessage("handle_friend_request", data);
 }
@@ -244,7 +317,7 @@ void WebSocketClient::sendGroupRequest(const QString& groupUuid, const QString& 
 void WebSocketClient::handleGroupRequest(const QString& grUuid, const QString& status)
 {
     QJsonObject data;
-    data["grUuid"] = grUuid;
+    data["gruuid"] = grUuid;
     data["status"] = status;
     sendMessage("handle_group_request", data);
 }
@@ -305,6 +378,16 @@ void WebSocketClient::setMemberRole(const QString& groupuuid, const QString& tar
     data["targetuseruuid"] = targetuseruuid;
     data["role"] = role;
     sendMessage("set_member_role", data);
+}
+
+void WebSocketClient::promoteGroupMember(const QString& groupuuid, const QString& targetuseruuid)
+{
+    setMemberRole(groupuuid, targetuseruuid, "admin");
+}
+
+void WebSocketClient::demoteGroupMember(const QString& groupuuid, const QString& targetuseruuid)
+{
+    setMemberRole(groupuuid, targetuseruuid, "member");
 }
 
 void WebSocketClient::joinGroup(const QString& groupuuid)

@@ -3,8 +3,7 @@
 #include"../../jwt/Appjwt.h"
 #include"../../redis/AppRedis.hpp"
 #include "../../cos/AppCos.hpp"
-
-// #include"../../smtp/AppEmail.hpp"
+#include"../../smtp/AppEmail.hpp"
 //#include"../../websocket/AppWebSocket.hpp"
 
 class OtherComponent {
@@ -23,11 +22,11 @@ public:
         return rs;
         }());
 
-    // OATPP_CREATE_COMPONENT(std::shared_ptr<AppEmail>, email)([] {
-    //     OATPP_COMPONENT(std::shared_ptr<SettingController>, config);
-    //     auto em = std::make_shared<AppEmail>(config->getString("smtp_host"),config->getNum("smtp_port"), config->getString("sender_name"), config->getString("sender_email"), config->getString("sender_password"));
-    //     return em;
-    //     }());
+     OATPP_CREATE_COMPONENT(std::shared_ptr<AppEmail>, email)([] {
+         OATPP_COMPONENT(std::shared_ptr<SettingController>, config);
+         auto em = std::make_shared<AppEmail>(config->getString("smtp_host"),config->getNum("smtp_port"), config->getString("sender_name"), config->getString("sender_email"), config->getString("sender_password"));
+         return em;
+         }());
 
     //OATPP_CREATE_COMPONENT(std::shared_ptr<AppWebSocket>, websocket)([] {
     //    return std::make_shared<AppWebSocket>();

@@ -25,6 +25,8 @@ private slots:
     void onError(const QString& errorMessage, int errorCode);
     void onWebSocketConnected();
     void onWebSocketError(const QString& error);
+    void onHistoryAccountSelected(const QString& email);
+    void onClearHistoryClicked();
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
@@ -36,6 +38,8 @@ private:
     void disconnectSignals();
     void loadSavedCredentials();
     void saveCredentials(const QString& email, const QString& password);
+    void saveAllCredentials();
+    void updateHistoryComboBox();
     QString getCredentialFilePath() const;
 
 private:
@@ -44,4 +48,5 @@ private:
     WebSocketClient* m_wsClient;
     QString m_authToken;
     QJsonObject m_userInfo;
+    QMap<QString, QString> m_loginHistory;
 };
