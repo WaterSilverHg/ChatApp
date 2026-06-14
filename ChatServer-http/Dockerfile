@@ -30,17 +30,12 @@ COPY vcpkg /opt/vcpkg
 ENV VCPKG_ROOT=/opt/vcpkg
 ENV PATH="${VCPKG_ROOT}:${PATH}"
 
-# 安装 oatpp 相关依赖（指定版本，注意 vcpkg 新语法：包名:triplet@版本）
-RUN vcpkg install \
-    oatpp:x64-linux@1.3.1 \
-    oatpp-websocket:x64-linux@1.3.0 \
-    oatpp-postgresql:x64-linux@1.3.0 \
-    oatpp-swagger:x64-linux@1.3.1 \
-    poco:x64-linux \
-    openssl:x64-linux \
-    redis++:x64-linux \
-    mailio:x64-linux@0.25.3 \
-    jwt-cpp:x64-linux@0.7.0
+# 复制 vcpkg manifest 文件
+COPY vcpkg.json /opt/vcpkg/
+
+# 使用 manifest 模式安装依赖
+WORKDIR /opt/vcpkg
+RUN ./vcpkg install --triplet x64-linux
 
 # 复制项目代码（include/ 目录包含外部库 bcrypt, jwt-cpp, cos-cpp 等）
 WORKDIR /app
