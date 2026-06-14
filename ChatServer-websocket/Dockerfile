@@ -30,17 +30,17 @@ COPY vcpkg /opt/vcpkg
 ENV VCPKG_ROOT=/opt/vcpkg
 ENV PATH="${VCPKG_ROOT}:${PATH}"
 
-# 安装 oatpp 相关依赖（指定版本，WebSocket服务器不需要 COS SDK）
+# 安装 oatpp 相关依赖（指定版本，注意 vcpkg 新语法：包名:triplet@版本，WebSocket服务器不需要 COS SDK）
 RUN vcpkg install \
-    oatpp@1.3.1:x64-linux \
-    oatpp-websocket@1.3.0:x64-linux \
-    oatpp-postgresql@1.3.0:x64-linux \
-    oatpp-swagger@1.3.1:x64-linux \
+    oatpp:x64-linux@1.3.1 \
+    oatpp-websocket:x64-linux@1.3.0 \
+    oatpp-postgresql:x64-linux@1.3.0 \
+    oatpp-swagger:x64-linux@1.3.1 \
     poco:x64-linux \
     openssl:x64-linux \
     redis++:x64-linux \
-    mailio@0.25.3:x64-linux \
-    jwt-cpp@0.7.0:x64-linux
+    mailio:x64-linux@0.25.3 \
+    jwt-cpp:x64-linux@0.7.0
 
 # 复制项目代码（include/ 目录包含外部库 bcrypt, jwt-cpp 等）
 WORKDIR /app
