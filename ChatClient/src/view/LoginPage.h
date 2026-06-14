@@ -21,8 +21,6 @@ private slots:
     void on_loginButton_clicked();
     void on_registerLink_clicked();
     void on_showPasswordCheckBox_toggled(bool checked);
-    void onLoginSuccess(const QJsonObject& data);
-    void onError(const QString& errorMessage, int errorCode);
     void onWebSocketConnected();
     void onWebSocketError(const QString& error);
     void onHistoryAccountSelected(const QString& email);

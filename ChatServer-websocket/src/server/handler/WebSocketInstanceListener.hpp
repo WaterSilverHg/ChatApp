@@ -26,7 +26,7 @@ public:
             int prevCount = m_sharedResources->webSocket->registerConnection(userUuid, socket);
             auto listener = std::make_shared<LightweightAsyncWebSocketListener>(userUuid, m_sharedResources);
             socket->setListener(listener);
-            listener->startHeartbeatCheck(socket);
+            listener->initHeartbeat(socket);
 
             if (prevCount == 0) {
                 try {

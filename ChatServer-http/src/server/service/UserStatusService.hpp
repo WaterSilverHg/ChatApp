@@ -200,28 +200,7 @@ public:
 #else
         OATPP_ASSERT_HTTP(userResult->isSuccess() && userResult->hasMoreToFetch(), Status::CODE_404, "用户不存在");
 #endif
-        //auto userProfile = userResult->fetch<oatpp::Vector<oatpp::Object<UserInfoVO>>>()[0];
         return userResult->fetch<oatpp::Vector<oatpp::Object<UserInfoVO>>>()[0];
-        //// 获取用户状态信息（包含lastSeen）
-        //auto statusResult = m_appPostgresql->getUserStatus(id);
-        //oatpp::String lastSeen = nullptr;
-        //oatpp::String status = nullptr;
-        //if (statusResult->isSuccess() && statusResult->hasMoreToFetch()) {
-        //    auto statusData = statusResult->fetch<oatpp::Vector<oatpp::Object<UserStatusVO>>>()[0];
-        //    status = statusData->status;
-        //    lastSeen = statusData->lastSeen;
-        //}
 
-        //// 创建UserInfoVO，使用getUserById的数据作为基础
-        //auto userInfo = UserInfoVO::createShared();
-        //userInfo->userUuid = userUuid;
-        //userInfo->username = userProfile->username;
-        //userInfo->email = userProfile->email;
-        //userInfo->avatarUrl = userProfile->avatarUrl;
-        //// 优先使用getUserStatus返回的status和lastSeen
-        //userInfo->status = status ? status : (userProfile->status ? userProfile->status : oatpp::String("offline"));
-        //userInfo->lastSeen = lastSeen ? lastSeen : userProfile->lastSeen;
-
-        //return userInfo;
     }
 };

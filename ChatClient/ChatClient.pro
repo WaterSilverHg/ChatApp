@@ -45,7 +45,6 @@ FORMS += \
     src/ui/chatmainpage.ui \
     src/ui/SearchDialog.ui \
     src/ui/RequestDialog.ui \
-    src/ui/CreateGroupDialog.ui \
     src/ui/AddGroupMembersDialog.ui
 #    src/ui/MainPage.ui
 

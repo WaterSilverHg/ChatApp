@@ -27,9 +27,21 @@
 #include "../../redis/AppRedis.hpp"
 #include "../../tool/UuidIdCache.hpp"
 #include "../../tool/HashUtils.hpp"
-
 #include"../dto/WebSocketMessageDto.hpp"
 
+struct HeartbeatRecord {
+    std::weak_ptr<oatpp::websocket::AsyncWebSocket> socket;
+    std::atomic<std::chrono::steady_clock::time_point> lastActivityTime;
+    std::atomic<std::chrono::steady_clock::time_point> lastPingSentTime;
+    std::string userUuid;
+
+    HeartbeatRecord(const std::shared_ptr<oatpp::websocket::AsyncWebSocket>& ws, const std::string& uuid)
+        : socket(ws), userUuid(uuid) {
+        auto now = std::chrono::steady_clock::now();
+        lastActivityTime.store(now);
+        lastPingSentTime.store(now);
+    }
+};
 
 class SharedWebSocketResources {
 public:
@@ -47,6 +59,14 @@ public:
     std::shared_ptr<UuidIdCache> idCache;
 
     std::unordered_map<std::string, std::function<void(const oatpp::String&, const oatpp::String&)>> handlers;
+
+    // 心跳相关
+    std::unordered_map<std::string, std::shared_ptr<HeartbeatRecord>> heartbeatRecords;
+    std::mutex heartbeatMutex;
+    std::atomic<bool> heartbeatRunning;
+    std::thread heartbeatThread;
+    static constexpr std::chrono::seconds HEARTBEAT_INTERVAL{30};  // 检查间隔
+    static constexpr std::chrono::seconds TIMEOUT_THRESHOLD{90};   // 超时阈值
 
     SharedWebSocketResources(
         const std::shared_ptr<AppPostgresql>& client,
@@ -68,6 +88,91 @@ public:
         , statusService(std::make_shared<UserStatusService>(client, idCacheService))
     {
         initHandlers();
+        startHeartbeatThread();
+    }
+
+    ~SharedWebSocketResources() {
+        stopHeartbeatThread();
+        if (heartbeatThread.joinable()) {
+            heartbeatThread.join();
+        }
+    }
+
+    void addHeartbeatRecord(const std::string& connId, const std::shared_ptr<oatpp::websocket::AsyncWebSocket>& socket, const std::string& userUuid) {
+        std::lock_guard<std::mutex> lock(heartbeatMutex);
+        heartbeatRecords[connId] = std::make_shared<HeartbeatRecord>(socket, userUuid);
+    }
+
+    void updateActivityTime(const std::string& connId) {
+        std::lock_guard<std::mutex> lock(heartbeatMutex);
+        auto it = heartbeatRecords.find(connId);
+        if (it != heartbeatRecords.end()) {
+            it->second->lastActivityTime.store(std::chrono::steady_clock::now());
+        }
+    }
+
+    void removeHeartbeatRecord(const std::string& connId) {
+        std::lock_guard<std::mutex> lock(heartbeatMutex);
+        heartbeatRecords.erase(connId);
+    }
+
+public:
+    void startHeartbeatThread() {
+        heartbeatRunning.store(true);
+        heartbeatThread = std::thread([this]() {
+            while (heartbeatRunning.load()) {
+                std::this_thread::sleep_for(HEARTBEAT_INTERVAL);
+                checkHeartbeat();
+            }
+        });
+        // 不调用 detach()，在析构函数中 join()
+    }
+
+    void stopHeartbeatThread() {
+        heartbeatRunning.store(false);
+    }
+
+    void checkHeartbeat() {
+        auto now = std::chrono::steady_clock::now();
+        
+        // 需要发送 Ping 的连接
+        std::vector<std::pair<std::string, std::weak_ptr<oatpp::websocket::AsyncWebSocket>>> toPing;
+        
+        {
+            std::lock_guard<std::mutex> lock(heartbeatMutex);
+            for (auto it = heartbeatRecords.begin(); it != heartbeatRecords.end(); ) {
+                auto& record = it->second;
+                auto lastTime = record->lastActivityTime.load();
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastTime);
+
+                if (elapsed >= TIMEOUT_THRESHOLD) {
+                    // 超时，关闭连接并删除记录
+                    OATPP_LOGW("Heartbeat", "Connection timeout for user %s, closing connection", record->userUuid.c_str());
+                    if (auto socket = record->socket.lock()) {
+                        socket->sendCloseAsync();
+                    }
+                    it = heartbeatRecords.erase(it);
+                } else {
+                    // 检查是否需要发送 Ping（避免 Ping 风暴）
+                    auto lastPing = record->lastPingSentTime.load();
+                    auto pingElapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastPing);
+                    
+                    if (pingElapsed >= HEARTBEAT_INTERVAL) {
+                        // 记录需要发送 Ping 的连接（复制 weak_ptr）
+                        toPing.emplace_back(it->first, record->socket);
+                        record->lastPingSentTime.store(now);
+                    }
+                    ++it;
+                }
+            }
+        }
+
+        // 在锁外发送 Ping
+        for (auto& [connId, weakSocket] : toPing) {
+            if (auto socket = weakSocket.lock()) {
+                socket->sendPingAsync(oatpp::String("ping"));
+            }
+        }
     }
 
     void sendResponse(const oatpp::String& userUuid, const char* type, const oatpp::String& content) {

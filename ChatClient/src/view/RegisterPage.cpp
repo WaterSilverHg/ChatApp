@@ -27,20 +27,12 @@ RegisterPage::RegisterPage(QWidget *parent)
 
 void RegisterPage::connectSignals()
 {
-    connect(m_httpClient, &HttpApiClient::registerSuccess, this, &RegisterPage::onRegisterSuccess);
-    connect(m_httpClient, &HttpApiClient::loginSuccess, this, &RegisterPage::onLoginSuccess);
-    connect(m_httpClient, &HttpApiClient::errorOccurred, this, &RegisterPage::onError);
-    connect(m_httpClient, &HttpApiClient::verificationCodeSent, this, &RegisterPage::onVerificationCodeSent);
     connect(m_wsClient, &WebSocketClient::connected, this, &RegisterPage::onWebSocketConnected);
     connect(m_wsClient, &WebSocketClient::errorOccurred, this, &RegisterPage::onWebSocketError);
 }
 
 void RegisterPage::disconnectSignals()
 {
-    disconnect(m_httpClient, &HttpApiClient::registerSuccess, this, &RegisterPage::onRegisterSuccess);
-    disconnect(m_httpClient, &HttpApiClient::loginSuccess, this, &RegisterPage::onLoginSuccess);
-    disconnect(m_httpClient, &HttpApiClient::errorOccurred, this, &RegisterPage::onError);
-    disconnect(m_httpClient, &HttpApiClient::verificationCodeSent, this, &RegisterPage::onVerificationCodeSent);
     disconnect(m_wsClient, &WebSocketClient::connected, this, &RegisterPage::onWebSocketConnected);
     disconnect(m_wsClient, &WebSocketClient::errorOccurred, this, &RegisterPage::onWebSocketError);
 }
@@ -87,26 +79,29 @@ void RegisterPage::on_sendCodeButton_clicked()
     }
 
     ui.sendCodeButton->setEnabled(false);
-    m_httpClient->sendVerificationCode(email);
-}
-
-void RegisterPage::onVerificationCodeSent(const QJsonObject& data)
-{
-    QMessageBox::information(this, "提示", "验证码已发送到您的邮箱！");
-    m_codeCountdown = 60;
-    ui.sendCodeButton->setText(QString("重新发送 (%1s)").arg(m_codeCountdown));
-    
-    connect(&m_countdownTimer, &QTimer::timeout, this, [this]() {
-        m_codeCountdown--;
-        if (m_codeCountdown <= 0) {
-            m_countdownTimer.stop();
-            ui.sendCodeButton->setText("发送验证码");
-            ui.sendCodeButton->setEnabled(true);
-        } else {
+    m_httpClient->sendVerificationCode(email,
+        [this](const QJsonDocument& doc) {
+            QMessageBox::information(this, "提示", "验证码已发送到您的邮箱！");
+            m_codeCountdown = 60;
             ui.sendCodeButton->setText(QString("重新发送 (%1s)").arg(m_codeCountdown));
-        }
-    });
-    m_countdownTimer.start(1000);
+
+            disconnect(m_countdownConnection);
+            m_countdownConnection = connect(&m_countdownTimer, &QTimer::timeout, this, [this]() {
+                m_codeCountdown--;
+                if (m_codeCountdown <= 0) {
+                    m_countdownTimer.stop();
+                    ui.sendCodeButton->setText("发送验证码");
+                    ui.sendCodeButton->setEnabled(true);
+                } else {
+                    ui.sendCodeButton->setText(QString("重新发送 (%1s)").arg(m_codeCountdown));
+                }
+            });
+            m_countdownTimer.start(1000);
+        },
+        [this](const QString& errorMessage, int errorCode) {
+            ui.sendCodeButton->setEnabled(true);
+            QMessageBox::warning(this, "错误", errorMessage);
+        });
 }
 
 void RegisterPage::on_registerButton_clicked()
@@ -140,52 +135,37 @@ void RegisterPage::on_registerButton_clicked()
     ui.registerButton->setEnabled(false);
     ui.registerButton->setText("注册中...");
 
-    m_httpClient->registerUser(username, email, password, verificationCode);
-}
+    m_httpClient->registerUser(username, email, password, verificationCode,
+        [this](const QJsonDocument& doc) {
+            QJsonObject data = doc.object();
+            if (data.contains("content")) {
+                data = QJsonDocument::fromJson(data["content"].toString().toUtf8()).object();
+            }
+            QString token = data["token"].toString();
+            QJsonObject user = data["user"].toObject();
+            QString usernameStr = user["username"].toString();
 
-void RegisterPage::onRegisterSuccess(const QJsonObject& data)
-{
-    QString token = data["token"].toString();
-    QJsonObject user = data["user"].toObject();
-    QString username = user["username"].toString();
+            m_pendingToken = token;
+            m_pendingUser = user;
 
-    m_pendingToken = token;
-    m_pendingUser = user;
+            UserSession::instance()->setToken(token);
+            UserSession::instance()->setUserData(user);
 
-    UserSession::instance()->setToken(token);
-    UserSession::instance()->setUserData(user);
-
-    QMessageBox::information(this, "提示", "注册成功!正在连接...");
-    m_wsClient->connectWebSocket();
-}
-
-void RegisterPage::onLoginSuccess(const QJsonObject& data)
-{
-    QString token = data["token"].toString();
-    QJsonObject user = data["user"].toObject();
-    QString username = user["username"].toString();
-
-    m_pendingToken = token;
-    m_pendingUser = user;
-
-    UserSession::instance()->setToken(token);
-    UserSession::instance()->setUserData(user);
-
-    m_wsClient->connectWebSocket();
+            QMessageBox::information(this, "提示", "注册成功!正在连接...");
+            m_wsClient->connectWebSocket();
+        },
+        [this](const QString& errorMessage, int errorCode) {
+            ui.registerButton->setEnabled(true);
+            ui.registerButton->setText("注册");
+            ui.sendCodeButton->setEnabled(true);
+            QMessageBox::warning(this, "注册失败", errorMessage);
+        });
 }
 
 void RegisterPage::onWebSocketConnected()
 {
     QString username = m_pendingUser["username"].toString();
     emit autoLogin(username, m_pendingToken, m_pendingUser);
-}
-
-void RegisterPage::onError(const QString& errorMessage, int errorCode)
-{
-    ui.registerButton->setEnabled(true);
-    ui.registerButton->setText("注册");
-    ui.sendCodeButton->setEnabled(true);
-    QMessageBox::warning(this, "注册失败", errorMessage);
 }
 
 void RegisterPage::onWebSocketError(const QString& error)
@@ -206,7 +186,7 @@ void RegisterPage::keyPressEvent(QKeyEvent *event)
         on_registerButton_clicked();
     } else if (event->key() == Qt::Key_Tab) {
         QWidget* currentWidget = focusWidget();
-        
+
         if (currentWidget == ui.usernameEdit) {
             ui.emailEdit->setFocus();
             event->accept();

@@ -13,50 +13,6 @@ SearchDialog::SearchDialog(QWidget* parent)
     connect(ui.closeBtn, &QPushButton::clicked, this, &QDialog::reject);
     connect(ui.userResultList, &QListWidget::itemClicked, this, &SearchDialog::onUserResultSelected);
     connect(ui.groupResultList, &QListWidget::itemClicked, this, &SearchDialog::onGroupResultSelected);
-
-    auto* http = HttpApiClient::instance();
-
-    connect(http, &HttpApiClient::usersSearched, this, [this](const QJsonArray& users) {
-        ui.userResultList->clear();
-        for (const auto& v : users) {
-            QJsonObject obj = v.toObject();
-            QString name = obj["username"].toString();
-            QString uuid = obj["useruuid"].toString();
-            QString fs = obj["friendshipstatus"].toString();
-            QString tag;
-            if (fs == "accepted") tag = " [已是好友]";
-            else if (fs == "pending") tag = " [已发送请求]";
-            else if (fs == "blocked") tag = " [已拉黑]";
-            QListWidgetItem* item = new QListWidgetItem(QString("[用户] %1%2").arg(name, tag));
-            // 存储完整的搜索结果对象，以便发送请求时使用
-            obj["_type"] = "user";
-            item->setData(Qt::UserRole, QJsonDocument(obj).toJson(QJsonDocument::Compact));
-            item->setData(Qt::UserRole + 1, uuid);
-            ui.userResultList->addItem(item);
-        }
-        if (users.isEmpty()) {
-            ui.userResultList->addItem(new QListWidgetItem("未找到用户"));
-        }
-    });
-
-    connect(http, &HttpApiClient::groupsSearched, this, [this](const QJsonArray& groups) {
-        ui.groupResultList->clear();
-        for (const auto& v : groups) {
-            QJsonObject obj = v.toObject();
-            QString name = obj["name"].toString();
-            QString uuid = obj["uuid"].toString();
-            bool joined = obj["isjoined"].toBool();
-            QString tag = joined ? " [已加入]" : "";
-            QListWidgetItem* item = new QListWidgetItem(QString("[群聊] %1%2").arg(name, tag));
-            obj["_type"] = "group";
-            item->setData(Qt::UserRole, QJsonDocument(obj).toJson(QJsonDocument::Compact));
-            item->setData(Qt::UserRole + 1, uuid);
-            ui.groupResultList->addItem(item);
-        }
-        if (groups.isEmpty()) {
-            ui.groupResultList->addItem(new QListWidgetItem("未找到群聊"));
-        }
-    });
 }
 
 SearchDialog::SearchDialog(const QJsonArray& friendsList, QWidget* parent)
@@ -124,9 +80,55 @@ void SearchDialog::onSearchClicked()
 
     auto* http = HttpApiClient::instance();
     if (ui.tabWidget->currentIndex() == 0) {
-        http->searchUsers(keyword);
+        http->searchUsers(keyword, [this](const QJsonDocument& doc) {
+            QJsonArray users = doc.isArray() ? doc.array() :
+                              (doc.object().contains("content") ? QJsonDocument::fromJson(doc.object()["content"].toString().toUtf8()).array() : QJsonArray());
+            ui.userResultList->clear();
+            for (const auto& v : users) {
+                QJsonObject obj = v.toObject();
+                QString name = obj["username"].toString();
+                QString uuid = obj["useruuid"].toString();
+                QString fs = obj["friendshipstatus"].toString();
+                QString tag;
+                if (fs == "accepted") tag = " [已是好友]";
+                else if (fs == "pending") tag = " [已发送请求]";
+                else if (fs == "block") tag = " [已拉黑]";
+                else if (fs == "blocked") tag = " [已被拉黑]";
+                QListWidgetItem* item = new QListWidgetItem(QString("[用户] %1%2").arg(name, tag));
+                obj["_type"] = "user";
+                item->setData(Qt::UserRole, QJsonDocument(obj).toJson(QJsonDocument::Compact));
+                item->setData(Qt::UserRole + 1, uuid);
+                ui.userResultList->addItem(item);
+            }
+            if (users.isEmpty()) {
+                ui.userResultList->addItem(new QListWidgetItem("未找到用户"));
+            }
+        }, [this](const QString& error, int code) {
+            QMessageBox::warning(this, "错误", error);
+        });
     } else {
-        http->searchGroups(keyword);
+        http->searchGroups(keyword, [this](const QJsonDocument& doc) {
+            QJsonArray groups = doc.isArray() ? doc.array() :
+                               (doc.object().contains("content") ? QJsonDocument::fromJson(doc.object()["content"].toString().toUtf8()).array() : QJsonArray());
+            ui.groupResultList->clear();
+            for (const auto& v : groups) {
+                QJsonObject obj = v.toObject();
+                QString name = obj["name"].toString();
+                QString uuid = obj["uuid"].toString();
+                bool joined = obj["isjoined"].toBool();
+                QString tag = joined ? " [已加入]" : "";
+                QListWidgetItem* item = new QListWidgetItem(QString("[群聊] %1%2").arg(name, tag));
+                obj["_type"] = "group";
+                item->setData(Qt::UserRole, QJsonDocument(obj).toJson(QJsonDocument::Compact));
+                item->setData(Qt::UserRole + 1, uuid);
+                ui.groupResultList->addItem(item);
+            }
+            if (groups.isEmpty()) {
+                ui.groupResultList->addItem(new QListWidgetItem("未找到群聊"));
+            }
+        }, [this](const QString& error, int code) {
+            QMessageBox::warning(this, "错误", error);
+        });
     }
 }
 

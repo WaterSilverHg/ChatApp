@@ -22,7 +22,7 @@ public:
     // ==================== 用户相关 ====================
     // 根据邮箱查找用户（包含密码哈希，用于登录验证）
     QUERY(getUserByEmail, 
-          "SELECT CAST(uuid AS VARCHAR) AS uuid, username, email, password_hash AS passwordhash, avatar_url AS avatarurl, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat FROM users WHERE email = :email AND deleted_at IS NULL;",
+          "SELECT CAST(uuid AS VARCHAR) AS useruuid, username, email, password_hash AS passwordhash, avatar_url AS avatarurl, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat FROM users WHERE email = :email AND deleted_at IS NULL;",
           PARAM(oatpp::String, email))
 
     //// 根据邮箱查找用户（不包含密码）
@@ -32,12 +32,12 @@ public:
 
     // 根据ID查找用户
     QUERY(getUserById, 
-          "SELECT CAST(uuid AS VARCHAR) AS uuid, username, email, avatar_url AS avatarurl, status, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat FROM users WHERE id = :userId AND deleted_at IS NULL;",
+          "SELECT CAST(uuid AS VARCHAR) AS useruuid, username, email, avatar_url AS avatarurl, status, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat FROM users WHERE id = :userId AND deleted_at IS NULL;",
           PARAM(oatpp::Int64, userId))
 
     // 创建用户
     QUERY(createUser, 
-          "INSERT INTO users (username, email, phone, password_hash) VALUES (:username, :email, :phone, crypt(:password, gen_salt('bf'))) RETURNING CAST(uuid AS VARCHAR) AS uuid;",
+          "INSERT INTO users (username, email, phone, password_hash) VALUES (:username, :email, :phone, crypt(:password, gen_salt('bf'))) RETURNING CAST(uuid AS VARCHAR) AS useruuid;",
           PARAM(oatpp::String, username),
           PARAM(oatpp::String, email),
           PARAM(oatpp::String, phone),
@@ -45,7 +45,7 @@ public:
 
     // 登录用户
     QUERY(loginUser, 
-          "SELECT CAST(uuid AS VARCHAR) AS uuid, username, email, avatar_url AS avatarurl, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat FROM users WHERE email = :email AND password_hash = :passwordHash AND deleted_at IS NULL;",
+          "SELECT CAST(uuid AS VARCHAR) AS useruuid, username, email, avatar_url AS avatarurl, TO_CHAR(created_at, 'YYYY-MM-DD HH24:MI:SS') AS createdat FROM users WHERE email = :email AND password_hash = :passwordHash AND deleted_at IS NULL;",
           PARAM(oatpp::String, email),
           PARAM(oatpp::String, passwordHash))
 
@@ -222,15 +222,25 @@ public:
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::Int64, friendId))
 
-    // 拉黑用户
-    QUERY(blockUser, 
-          "UPDATE friendships SET status = 'blocked' WHERE user_id = :userId AND friend_id = :friendId;",
+    // 拉黑用户（单条SQL同时更新两条记录）
+    // user → target: status = 'block' (我拉黑了对方)
+    // target → user: status = 'blocked' (对方被我拉黑了)
+    QUERY(blockUser,
+          "UPDATE friendships SET status = CASE "
+          "  WHEN user_id = :userId AND friend_id = :friendId THEN 'block' "
+          "  WHEN user_id = :friendId AND friend_id = :userId THEN 'blocked' "
+          "END "
+          "WHERE (user_id = :userId AND friend_id = :friendId) "
+          "   OR (user_id = :friendId AND friend_id = :userId);",
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::Int64, friendId))
 
-    // 取消拉黑
-    QUERY(unblockUser, 
-          "UPDATE friendships SET status = 'accepted' WHERE user_id = :userId AND friend_id = :friendId;",
+    // 取消拉黑（单条SQL同时更新两条记录）
+    // 将双方状态都恢复为 'accepted'
+    QUERY(unblockUser,
+          "UPDATE friendships SET status = 'accepted' "
+          "WHERE (user_id = :userId AND friend_id = :friendId) "
+          "   OR (user_id = :friendId AND friend_id = :userId);",
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::Int64, friendId))
 
@@ -889,7 +899,7 @@ QUERY(sendPrivateMessage,
             PARAM(oatpp::String, uuid))
         // 根据用户ID获取用户UUID
         QUERY(getUserUuidById,
-            "SELECT uuid FROM users WHERE id = :id AND deleted_at IS NULL;",
+            "SELECT CAST(uuid AS VARCHAR) AS useruuid FROM users WHERE id = :id AND deleted_at IS NULL;",
             PARAM(oatpp::Int64, id))
 
         // 根据群组UUID获取群组ID

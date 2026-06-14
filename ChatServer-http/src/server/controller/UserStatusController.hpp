@@ -105,6 +105,21 @@ public:
         AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject)) {
         return createDtoResponse(Status::CODE_200, m_statusService->getUserInfoByUuid(userUuid));
     }
+
+    ENDPOINT_INFO(updateProfile) {
+        info->summary = "更新个人信息";
+        info->description = "更新当前用户的用户名和头像";
+        info->addResponse<Object<UserInfoVO>>(Status::CODE_200, "application/json", "更新成功");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "用户不存在或已失效");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_500, "application/json", "更新失败");
+        info->addConsumes<Object<UpdateProfileRequestDTO>>("application/json");
+        info->addSecurityRequirement("BearerAuth");
+    }
+    ENDPOINT("PUT", "/api/user/profile", updateProfile,
+        BODY_DTO(Object<UpdateProfileRequestDTO>, request),
+        AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject)) {
+        return createDtoResponse(Status::CODE_200, m_statusService->updateUserInfo(request, authObject->userUuid));
+    }
 };
 
 #include OATPP_CODEGEN_END(ApiController)

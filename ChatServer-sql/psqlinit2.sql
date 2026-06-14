@@ -55,12 +55,12 @@ CREATE TABLE friendships (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     friend_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'blocked', 'deleted')),
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'block', 'blocked', 'deleted')),
     remark VARCHAR(50),
     group_name VARCHAR(50) DEFAULT 'Default Group',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
+
     CONSTRAINT friendships_no_self CHECK (user_id != friend_id),
     UNIQUE(user_id, friend_id)
 );
@@ -68,43 +68,6 @@ CREATE TABLE friendships (
 CREATE INDEX idx_friendships_user_id ON friendships(user_id, status);
 CREATE INDEX idx_friendships_friend_id ON friendships(friend_id);
 --CREATE INDEX idx_friendships_status ON friendships(status);
-
--- 群组表
-CREATE TABLE groups (
-    id BIGSERIAL PRIMARY KEY,
-    uuid UUID NOT NULL DEFAULT uuid_generate_v4(),
-    name VARCHAR(100) NOT NULL,
-    description TEXT,
-    avatar_url TEXT,
-    owner_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    max_members INTEGER DEFAULT 500,
-    is_public BOOLEAN DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP WITH TIME ZONE
-     CONSTRAINT groups_max_members_check CHECK (max_members >= 1 AND max_members <= 500)
-);
-
-CREATE INDEX idx_groups_owner ON groups(owner_id);
--- CREATE INDEX idx_groups_uuid ON groups(uuid);
-CREATE INDEX idx_groups_is_public ON groups(is_public) WHERE deleted_at IS NULL;
-
--- 群组成员表
-CREATE TABLE group_members (
-    id BIGSERIAL PRIMARY KEY,
-    group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role VARCHAR(20) DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'member')),
-    nickname VARCHAR(50),
-    joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    last_read_msg_id BIGINT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    UNIQUE(group_id, user_id)
-);
-
-CREATE INDEX idx_group_members_group ON group_members(group_id);
-CREATE INDEX idx_group_members_user ON group_members(user_id);
 
 -- 消息表
 CREATE TABLE messages (
@@ -134,6 +97,43 @@ CREATE INDEX idx_messages_to_user ON messages(to_user_id, created_at);
 CREATE INDEX idx_messages_to_group ON messages(to_group_id, created_at);
 -- CREATE INDEX idx_messages_uuid ON messages(uuid);
 CREATE INDEX idx_messages_created_at ON messages(created_at);
+
+-- 群组表
+CREATE TABLE groups (
+    id BIGSERIAL PRIMARY KEY,
+    uuid UUID NOT NULL DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    avatar_url TEXT,
+    owner_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    max_members INTEGER DEFAULT 500,
+    is_public BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+     CONSTRAINT groups_max_members_check CHECK (max_members >= 1 AND max_members <= 500)
+);
+
+CREATE INDEX idx_groups_owner ON groups(owner_id);
+-- CREATE INDEX idx_groups_uuid ON groups(uuid);
+CREATE INDEX idx_groups_is_public ON groups(is_public) WHERE deleted_at IS NULL;
+
+-- 群组成员表
+CREATE TABLE group_members (
+    id BIGSERIAL PRIMARY KEY,
+    group_id BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(20) DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'member')),
+    nickname VARCHAR(50),
+    joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_read_msg_id BIGINT REFERENCES messages(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(group_id, user_id)
+);
+
+CREATE INDEX idx_group_members_group ON group_members(group_id);
+CREATE INDEX idx_group_members_user ON group_members(user_id);
 
 -- 好友请求表
 CREATE TABLE friend_requests (
@@ -179,6 +179,7 @@ CREATE TABLE files (
     id BIGSERIAL PRIMARY KEY,
     uuid UUID NOT NULL DEFAULT uuid_generate_v4(),
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_uuid VARCHAR(100),  -- 关联目标UUID（如群聊UUID）
     file_name VARCHAR(255) NOT NULL,
     file_path TEXT,
     file_size BIGINT NOT NULL,
@@ -242,6 +243,7 @@ DROP TRIGGER IF EXISTS update_friendships_updated_at ON friendships;
 DROP TRIGGER IF EXISTS update_groups_updated_at ON groups;
 DROP TRIGGER IF EXISTS update_friend_requests_updated_at ON friend_requests;
 DROP TRIGGER IF EXISTS update_conversations_updated_at ON conversations;
+DROP TRIGGER IF EXISTS update_group_requests_updated_at ON group_requests;
 
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -256,6 +258,9 @@ CREATE TRIGGER update_friend_requests_updated_at BEFORE UPDATE ON friend_request
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_conversations_updated_at BEFORE UPDATE ON conversations
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_group_requests_updated_at BEFORE UPDATE ON group_requests
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- 群组软删除时级联删除会话（因为 groups 使用 deleted_at 软删除，外键 ON DELETE CASCADE 不会触发）

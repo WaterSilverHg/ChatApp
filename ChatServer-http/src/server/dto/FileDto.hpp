@@ -25,6 +25,7 @@ class UploadFileRequestDTO : public oatpp::DTO {
     DTO_FIELD(String, fileType, "filetype");
     DTO_FIELD(String, mimeType, "mimetype");
     DTO_FIELD(Int64, fileSize, "filesize");
+    DTO_FIELD(String, targetUuid, "targetuuid");  // 关联目标UUID（如群聊UUID）
 };
 
 // 批量删除文件请求

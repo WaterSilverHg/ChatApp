@@ -1,0 +1,126 @@
+# ========== 构建输出 ==========
+build/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# ========== 编译目标文件 ==========
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.iobj
+*.ipdb
+*.sbr
+*.bsc
+
+# ========== 常用构建输出目录 ==========
+Debug/
+Release/
+x64/
+x86/
+dist/
+target/
+
+# ========== 服务端构建目录 (重要：排除本地编译产物) ==========
+ChatServer-http/build/
+ChatServer-http/out/
+ChatServer-http/cmake-build-*/
+ChatServer-websocket/build/
+ChatServer-websocket/out/
+ChatServer-websocket/cmake-build-*/
+
+# ========== 注意：不要排除 include/ 目录，它包含外部库 ==========
+# include/ 目录包含 bcrypt, jwt-cpp, cos-cpp 等库，必须保留
+
+# ========== vcpkg 相关 ==========
+# 注意：vcpkg/ 目录需要被复制到镜像中，只排除子目录
+vcpkg_installed/
+vcpkg_downloads/        # 避免与 vcpkg/ 混淆
+vcpkg_buildtrees/
+vcpkg/packages/
+.vcpkg/
+
+# ========== IDE 配置 ==========
+.idea/
+.vs/
+.vscode/
+*.code-workspace
+*.suo
+*.user
+*.sln.docstates
+*.sln
+*.vcxproj*
+
+# ========== Qt 相关 ==========
+*.pro.user
+*.autosave
+moc_*
+ui_*
+qrc_*
+
+# ========== 配置文件 (包含敏感信息) ==========
+config.json
+*.env
+.env.*
+
+# ========== 日志文件 ==========
+*.log
+logs/
+
+# ========== 临时文件 ==========
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# ========== 系统文件 ==========
+.DS_Store
+Thumbs.db
+
+# ========== Git ==========
+.git/
+.gitignore
+.gitattributes
+
+# ========== 文档 ==========
+*.md
+docs/
+LICENSE
+
+# ========== 测试文件 ==========
+test/
+tests/
+*_test.cpp
+*_test.hpp
+
+# ========== 客户端 (不需要在服务端镜像中) ==========
+ChatClient/
+
+# ========== 压缩包 ==========
+*.7z
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+
+# ========== 数据库文件 ==========
+*.db
+*.sqlite
+*.sqlite3
+
+# ========== 缓存 ==========
+.cache/
+__pycache__/
+node_modules/

@@ -28,13 +28,22 @@ void HttpApiClient::setAuthToken(const QString& token)
     m_authToken = token;
 }
 
-void HttpApiClient::sendHttpRequest(const QString& method, const QString& endpoint,
-    const QJsonObject& data)
+QString HttpApiClient::sendHttpRequest(const QString& method, const QString& endpoint,
+    const QJsonObject& data, SuccessCallback onSuccess, ErrorCallback onError,
+    bool authenticated)
 {
+    QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    if (onSuccess) m_successCallbacks[requestId] = onSuccess;
+    if (onError) m_errorCallbacks[requestId] = onError;
+
     QUrl url(m_serverUrl + endpoint);
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Connection", "close");
+
+    if (authenticated) {
+        addAuthHeader(request);
+    }
 
     QNetworkReply* reply = nullptr;
 
@@ -55,339 +64,125 @@ void HttpApiClient::sendHttpRequest(const QString& method, const QString& endpoi
 
     if (reply) {
         m_pendingReplies.append(reply);
+        reply->setProperty("requestId", requestId);
     }
+
+    return requestId;
 }
 
-void HttpApiClient::sendAuthenticatedRequest(const QString& method, const QString& endpoint,
-    const QJsonObject& data, const QVariant& context)
+void HttpApiClient::addAuthHeader(QNetworkRequest& request)
 {
-    QUrl url(m_serverUrl + endpoint);
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setRawHeader("Connection", "close");
-
     request.setRawHeader("Authorization", QString("Bearer %1").arg(UserSession::instance()->token()).toUtf8());
-
-    QNetworkReply* reply = nullptr;
-
-    if (method == "GET") {
-        reply = m_nam->get(request);
-    }
-    else if (method == "POST") {
-        QJsonDocument doc(data);
-        reply = m_nam->post(request, doc.toJson());
-    }
-    else if (method == "PUT") {
-        QJsonDocument doc(data);
-        reply = m_nam->put(request, doc.toJson());
-    }
-    else if (method == "DELETE") {
-        reply = m_nam->deleteResource(request);
-    }
-
-    if (reply) {
-        m_pendingReplies.append(reply);
-        if (context.isValid()) {
-            reply->setProperty("requestContext", context);
-        }
-    }
 }
 
 void HttpApiClient::onReplyFinished(QNetworkReply* reply)
 {
     m_pendingReplies.removeOne(reply);
-    
+    QString requestId = reply->property("requestId").toString();
+
+    auto successIt = m_successCallbacks.find(requestId);
+    auto errorIt = m_errorCallbacks.find(requestId);
+
     QByteArray data = reply->readAll();
-    QJsonDocument doc =QJsonDocument::fromJson(data);
-    QJsonObject obj =  doc.object();
-    //NoError就是0，或者说200，如果不是200就不是0
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    QJsonObject obj = doc.object();
+
     if (reply->error() != QNetworkReply::NoError) {
-        qDebug()<<reply->errorString();
-        QString errorMessage = obj.contains("message")?obj["message"].toString():"UnKnow Error";
-        emit errorOccurred(errorMessage, reply->error());
+        qDebug() << reply->errorString();
+        QString errorMessage = obj.contains("message") ? obj["message"].toString() : "Unknown Error";
+
+        if (errorIt != m_errorCallbacks.end()) {
+            ErrorCallback callback = errorIt.value();
+            m_errorCallbacks.erase(errorIt);
+            callback(errorMessage, reply->error());
+        } else {
+            emit errorOccurred(errorMessage, reply->error());
+        }
+
+        if (successIt != m_successCallbacks.end()) m_successCallbacks.erase(successIt);
         reply->deleteLater();
         return;
     }
 
-
-
+    // 处理文件上传的特殊逻辑
     QString url = reply->url().toString();
-
-//    bool isError = obj.contains("status") && obj["status"].toString().toUpper() == "ERROR";
-//    bool hasSuccessField = obj.contains("success");
-//    bool isSuccess = hasSuccessField ? obj["success"].toBool() : true;
-
-//    QString errorMessage = obj.contains("message") ? obj["message"].toString() :
-//                           obj.contains("error") ? obj["error"].toString() :
-//                           obj.contains("content") ? obj["content"].toString() : "操作失败";
-//    int errorCode = obj.contains("code") ? obj["code"].toInt() : -1;
-
-//    if (isError || (hasSuccessField && !isSuccess)) {
-//        emit errorOccurred(errorMessage, errorCode);
-//        reply->deleteLater();
-//        return;
-//    }
-
-    if (url.contains("/api/auth/login")) {
-        emit loginSuccess(obj);
-    }
-    else if (url.contains("/api/auth/register")) {
-        emit registerSuccess(obj);
-    }
-    else if (url.contains("/api/auth/logout")) {
-        emit logoutSuccess();
-    }
-    else if (url.contains("/api/auth/send-code")) {
-        emit verificationCodeSent(obj);
-    }
-    else if (url.contains("/api/auth/reset-password")) {
-        emit passwordResetSuccess(obj);
-    }
-    else if (url.contains("/api/conversations/users/") && (url.contains("/mute") || url.contains("/unmute"))) {
-        if (url.contains("/mute") && !url.contains("/unmute")) {
-            emit conversationMuted(true);
-        } else if (url.contains("/unmute")) {
-            emit conversationUnmuted(true);
-        }
-    }
-    else if (url.contains("/api/conversations/groups/") && (url.contains("/mute") || url.contains("/unmute"))) {
-        if (url.contains("/mute") && !url.contains("/unmute")) {
-            emit conversationMuted(true);
-        } else if (url.contains("/unmute")) {
-            emit conversationUnmuted(true);
-        }
-    }
-    else if (url.contains("/api/conversations/users/") && url.contains("/read")) {
-        emit conversationMarkedRead(true);
-    }
-    else if (url.contains("/api/conversations/groups/") && url.contains("/read")) {
-        emit conversationMarkedRead(true);
-    }
-    else if (url.contains("/api/conversations") && !url.contains("/users/") && !url.contains("/groups/")) {
-        QJsonArray conversations = doc.isArray() ? doc.array() :
-                                      (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        emit conversationsReceived(conversations);
-    }
-    else if (url.contains("/api/friends/requests/sent")) {
-        QJsonArray requests = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        emit sentRequestsReceived(requests);
-    }
-    else if (url.contains("/api/friends/requests/received")) {
-        qDebug() << "[DEBUG] /api/friends/requests/received response:" << doc;
-        QJsonArray requests = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        qDebug() << "[DEBUG] Friend requests count:" << requests.size();
-        emit receivedRequestsReceived(requests);
-    }
-    else if (url.contains("/api/groups/requests/received")) {
-        qDebug() << "[DEBUG] /api/groups/requests/received response:" << doc;
-        QJsonArray requests = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        qDebug() << "[DEBUG] Group requests count:" << requests.size();
-        emit receivedGroupRequestsReceived(requests);
-    }
-    else if (url.contains("/api/groups/requests/sent")) {
-        QJsonArray requests = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        emit sentGroupRequestsReceived(requests);
-    }
-    else if (url.contains("/api/friends/blocked")) {
-        QJsonArray users = doc.isArray() ? doc.array() :
-                           (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        emit blockedUsersReceived(users);
-    }
-    else if (url.contains("/api/friends/list") && !url.contains("/remark") && !url.contains("/group") && !url.contains("/block") && !url.contains("/unblock") && !url.contains("/detail")) {
-        QJsonArray friends = doc.isArray() ? doc.array() :
-                             (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        emit friendsListReceived(friends);
-    }
-    else if (url.contains("/api/friends/") && url.contains("/detail")) {
-        QJsonObject friendDetail = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
-        QVariant context = reply->property("requestContext");
-        emit friendDetailReceived(friendDetail, context);
-    }
-    else if (url.contains("/api/friends/") && url.contains("/remark")) {
-        if (obj.contains("message") && obj["message"].toString() != "success") {
-            emit errorOccurred(obj["message"].toString(), -1);
-        } else {
-            emit friendRemarkUpdated(true);
-        }
-    }
-    else if (url.contains("/api/friends/") && url.contains("/group")) {
-        if (obj.contains("message") && obj["message"].toString() != "success") {
-            emit errorOccurred(obj["message"].toString(), -1);
-        } else {
-            emit friendGroupUpdated(true);
-        }
-    }
-    else if (url.contains("/api/friends/block/")) {
-        if (obj.contains("message") && obj["message"].toString() != "success") {
-            emit errorOccurred(obj["message"].toString(), -1);
-        } else {
-            emit userBlocked(true);
-        }
-    }
-    else if (url.contains("/api/friends/unblock/")) {
-        if (obj.contains("message") && obj["message"].toString() != "success") {
-            emit errorOccurred(obj["message"].toString(), -1);
-        } else {
-            emit userUnblocked(true);
-        }
-    }
-    else if (url.contains("/api/friends/groups") && !url.contains("DELETE")) {
-        if (url.contains("PUT")) {
-            emit friendGroupRenamed(true);
-        } else {
-            QJsonArray groups = doc.isArray() ? doc.array() :
-                                (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-            emit friendGroupsReceived(groups);
-        }
-    }
-    else if (url.contains("/api/friends/groups") && url.contains("DELETE")) {
-        emit friendGroupDeleted(true);
-    }
-    else if (url.contains("/api/conversations/") && url.contains("/mute") && !url.contains("/unmute")) {
-        emit conversationMuted(true);
-    }
-    else if (url.contains("/api/conversations/") && url.contains("/unmute")) {
-        emit conversationUnmuted(true);
-    }
-    else if (url.contains("/api/messages/private/") && url.contains("/before")) {
-        QJsonArray messages = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        QString convUuid = extractUuidFromUrl(url, "/api/messages/private/");
-        emit privateMessagesBeforeReceived(convUuid, messages);
-    }
-    else if (url.contains("/api/messages/private/") && !url.contains("/page") && !url.contains("/read")) {
-        QJsonArray messages = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        QString convUuid = extractUuidFromUrl(url, "/api/messages/private/");
-        emit privateMessagesReceived(convUuid, messages);
-    }
-    else if (url.contains("/api/messages/private/") && url.contains("/page")) {
-        QJsonArray messages = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        QString convUuid = extractUuidFromUrl(url, "/api/messages/private/");
-        emit privateMessagesPageReceived(convUuid, messages);
-    }
-    else if (url.contains("/api/messages/") && url.contains("/read")) {
-        emit messageMarkedRead(true);
-    }
-    else if (url.contains("/api/messages/group/") && url.contains("/before")) {
-        QJsonArray messages = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        QString convUuid = extractUuidFromUrl(url, "/api/messages/group/");
-        emit groupMessagesBeforeReceived(convUuid, messages);
-    }
-    else if (url.contains("/api/messages/group/") && !url.contains("/page")) {
-        QJsonArray messages = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        QString convUuid = extractUuidFromUrl(url, "/api/messages/group/");
-        emit groupMessagesReceived(convUuid, messages);
-    }
-    else if (url.contains("/api/messages/group/") && url.contains("/page")) {
-        QJsonArray messages = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        QString convUuid = extractUuidFromUrl(url, "/api/messages/group/");
-        emit groupMessagesPageReceived(convUuid, messages);
-    }
-    else if (url.contains("/api/users/search")) {
-        QJsonArray users = doc.isArray() ? doc.array() :
-                           (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        emit usersSearched(users);
-    }
-    else if (url.contains("/api/groups/search")) {
-        QJsonArray groups = doc.isArray() ? doc.array() :
-                            (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        emit groupsSearched(groups);
-    }
-    else if (url.contains("/api/groups/list") && !url.contains("/members") && !url.contains("/search") && !url.contains("/requests")) {
-        QJsonArray groups = doc.isArray() ? doc.array() :
-                            (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        emit myGroupsReceived(groups);
-    }
-    else if (url.contains("/api/groups/") && !url.contains("/members")) {
-        QJsonObject groupData = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
-        QVariant context = reply->property("requestContext");
-        emit groupDetailReceived(groupData, context);
-    }
-    else if (url.contains("/api/groups/") && url.contains("/members")) {
-        QJsonArray members = doc.isArray() ? doc.array() :
-                             (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        emit groupMembersReceived(members);
-    }
-    else if (url.contains("/api/users/")) {
-        QJsonObject userData = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
-        QVariant context = reply->property("requestContext");
-        emit userInfoReceived(userData, context);
-    }
-    else if (url.contains("/api/status") && !url.contains("/batch")) {
-        QJsonObject statusData = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
-        emit statusUpdated(statusData);
-    }
-    else if (url.contains("/api/status/batch")) {
-        QJsonArray statuses = doc.isArray() ? doc.array() :
-                              (obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).array() : QJsonArray());
-        emit multipleStatusesReceived(statuses);
-    }
-    else if (url.contains("/api/files/record")) {
+    if (url.contains("/api/files/record")) {
         QString fileUuid = obj["uuid"].toString();
-        
-        // 从 reply 属性中获取该请求对应的文件数据
         QByteArray fileData = reply->property("fileData").toByteArray();
-        
+
         if (!fileUuid.isEmpty() && !fileData.isEmpty()) {
             QUrl uploadUrl(m_serverUrl + "/api/files/upload");
-            QNetworkRequest request(uploadUrl);
-            request.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
-            request.setRawHeader("Connection", "close");
-            request.setRawHeader("Authorization", QString("Bearer %1").arg(UserSession::instance()->token()).toUtf8());
-            request.setRawHeader("fileUuid", fileUuid.toUtf8());
+            QNetworkRequest uploadRequest(uploadUrl);
+            uploadRequest.setHeader(QNetworkRequest::ContentTypeHeader, "application/octet-stream");
+            uploadRequest.setRawHeader("Connection", "close");
+            addAuthHeader(uploadRequest);
+            uploadRequest.setRawHeader("fileUuid", fileUuid.toUtf8());
 
-            QNetworkReply* uploadReply = m_nam->post(request, fileData);
+            QString uploadRequestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            if (successIt != m_successCallbacks.end()) {
+                m_successCallbacks[uploadRequestId] = successIt.value();
+                m_successCallbacks.erase(successIt);
+            }
+            if (errorIt != m_errorCallbacks.end()) {
+                m_errorCallbacks[uploadRequestId] = errorIt.value();
+                m_errorCallbacks.erase(errorIt);
+            }
+
+            QNetworkReply* uploadReply = m_nam->post(uploadRequest, fileData);
             if (uploadReply) {
                 m_pendingReplies.append(uploadReply);
+                uploadReply->setProperty("requestId", uploadRequestId);
             }
+            reply->deleteLater();
+            return;
         }
     }
-    else if (url.contains("/api/files/upload")) {
-        QJsonObject fileInfo = obj.contains("content") ? QJsonDocument::fromJson(obj["content"].toString().toUtf8()).object() : obj;
-        emit fileUploaded(fileInfo);
+
+    // 成功回调
+    if (successIt != m_successCallbacks.end()) {
+        SuccessCallback callback = successIt.value();
+        m_successCallbacks.erase(successIt);
+        callback(doc);
+    }
+    if (errorIt != m_errorCallbacks.end()) {
+        m_errorCallbacks.erase(errorIt);
     }
 
     reply->deleteLater();
 }
 
-void HttpApiClient::login(const QString& email, const QString& password)
+void HttpApiClient::login(const QString& email, const QString& password,
+                          SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["email"] = email;
     data["password"] = password;
-    sendHttpRequest("POST", "/api/auth/login", data);
+    sendHttpRequest("POST", "/api/auth/login", data, onSuccess, onError, false);
 }
 
 void HttpApiClient::registerUser(const QString& username, const QString& email,
-    const QString& password, const QString& verificationCode)
+                                 const QString& password, const QString& verificationCode,
+                                 SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["username"] = username;
     data["email"] = email;
     data["password"] = password;
     if (!verificationCode.isEmpty()) data["verificationcode"] = verificationCode;
-    sendHttpRequest("POST", "/api/auth/register", data);
+    sendHttpRequest("POST", "/api/auth/register", data, onSuccess, onError, false);
 }
 
-void HttpApiClient::logout()
+void HttpApiClient::logout(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("POST", "/api/auth/logout", QJsonObject());
+    sendHttpRequest("POST", "/api/auth/logout", QJsonObject(), onSuccess, onError, true);
 }
 
 void HttpApiClient::abortAllRequests()
 {
-    // 先收集需要 abort 的 reply（避免在遍历中修改容器）
     QList<QNetworkReply*> pending = m_pendingReplies;
     m_pendingReplies.clear();
+    m_successCallbacks.clear();
+    m_errorCallbacks.clear();
 
     for (QNetworkReply* reply : pending) {
         if (reply && reply->isRunning()) {
@@ -397,255 +192,324 @@ void HttpApiClient::abortAllRequests()
     }
 }
 
-void HttpApiClient::resetPassword(const QString& email, const QString& code, const QString& oldPassword, const QString& newPassword)
+void HttpApiClient::resetPassword(const QString& email, const QString& code,
+                                 const QString& oldPassword, const QString& newPassword,
+                                 SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["email"] = email;
     data["verificationcode"] = code;
     data["oldpassword"] = oldPassword;
     data["newpassword"] = newPassword;
-    sendHttpRequest("POST", "/api/auth/reset-password", data);
+    sendHttpRequest("POST", "/api/auth/reset-password", data, onSuccess, onError, false);
 }
 
-void HttpApiClient::sendVerificationCode(const QString& email)
+void HttpApiClient::sendVerificationCode(const QString& email,
+                                         SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["email"] = email;
-    sendHttpRequest("POST", "/api/auth/send-code", data);
+    sendHttpRequest("POST", "/api/auth/send-code", data, onSuccess, onError, false);
 }
 
-void HttpApiClient::getCurrentUser()
+void HttpApiClient::getCurrentUser(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", "/api/user/me", QJsonObject());
+    sendHttpRequest("GET", "/api/user/me", QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getConversations()
+void HttpApiClient::getConversations(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", "/api/conversations", QJsonObject());
+    sendHttpRequest("GET", "/api/conversations", QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::markPrivateConversationRead(const QString& targetUserUuid)
+void HttpApiClient::markPrivateConversationRead(const QString& targetUserUuid,
+                                                 SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("PUT", QString("/api/conversations/users/%1/read").arg(targetUserUuid), QJsonObject());
+    sendHttpRequest("PUT", QString("/api/conversations/users/%1/read").arg(targetUserUuid),
+                   QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::markGroupConversationRead(const QString& groupUuid)
+void HttpApiClient::markGroupConversationRead(const QString& groupUuid,
+                                               SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("PUT", QString("/api/conversations/groups/%1/read").arg(groupUuid), QJsonObject());
+    sendHttpRequest("PUT", QString("/api/conversations/groups/%1/read").arg(groupUuid),
+                   QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getSentRequests()
+void HttpApiClient::getSentRequests(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", "/api/friends/requests/sent", QJsonObject());
+    sendHttpRequest("GET", "/api/friends/requests/sent", QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getReceivedRequests()
+void HttpApiClient::getReceivedRequests(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", "/api/friends/requests/received", QJsonObject());
+    sendHttpRequest("GET", "/api/friends/requests/received", QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getReceivedGroupRequests()
+void HttpApiClient::getReceivedGroupRequests(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", "/api/groups/requests/received", QJsonObject());
+    sendHttpRequest("GET", "/api/groups/requests/received", QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getSentGroupRequests()
+void HttpApiClient::getSentGroupRequests(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", "/api/groups/requests/sent", QJsonObject());
+    sendHttpRequest("GET", "/api/groups/requests/sent", QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getFriends()
+void HttpApiClient::getFriends(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", "/api/friends/list", QJsonObject());
+    sendHttpRequest("GET", "/api/friends/list", QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getBlockedUsers()
+void HttpApiClient::getBlockedUsers(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", "/api/friends/blocked", QJsonObject());
+    sendHttpRequest("GET", "/api/friends/blocked", QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::updateFriendRemark(const QString& friendId, const QString& remark)
+void HttpApiClient::updateFriendRemark(const QString& friendId, const QString& remark,
+                                       SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["remark"] = remark;
-    sendAuthenticatedRequest("PUT", QString("/api/friends/%1/remark").arg(friendId), data);
+    sendHttpRequest("PUT", QString("/api/friends/%1/remark").arg(friendId), data, onSuccess, onError, true);
 }
 
-void HttpApiClient::updateFriendGroup(const QString& friendId, const QString& group)
+void HttpApiClient::updateFriendGroup(const QString& friendId, const QString& group,
+                                      SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["group"] = group;
-    sendAuthenticatedRequest("PUT", QString("/api/friends/%1/group").arg(friendId), data);
+    sendHttpRequest("PUT", QString("/api/friends/%1/group").arg(friendId), data, onSuccess, onError, true);
 }
 
-void HttpApiClient::blockUser(const QString& targetUserId)
+void HttpApiClient::blockUser(const QString& targetUserId,
+                              SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("POST", QString("/api/friends/block/%1").arg(targetUserId), QJsonObject());
+    sendHttpRequest("POST", QString("/api/friends/block/%1").arg(targetUserId), QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::unblockUser(const QString& targetUserId)
+void HttpApiClient::unblockUser(const QString& targetUserId,
+                                SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("POST", QString("/api/friends/unblock/%1").arg(targetUserId), QJsonObject());
+    sendHttpRequest("POST", QString("/api/friends/unblock/%1").arg(targetUserId), QJsonObject(), onSuccess, onError, true);
 }
 
-// ==================== 好友分组管理 ====================
-
-void HttpApiClient::getFriendGroups()
+void HttpApiClient::getFriendGroups(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", "/api/friends/groups", QJsonObject());
+    sendHttpRequest("GET", "/api/friends/groups", QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::createFriendGroup(const QString& name, const QJsonArray& memberUuids)
+void HttpApiClient::createFriendGroup(const QString& name, const QJsonArray& memberUuids,
+                                      SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["name"] = name;
     if (!memberUuids.isEmpty()) data["memberuuids"] = memberUuids;
-    sendAuthenticatedRequest("POST", "/api/friends/groups", data);
+    sendHttpRequest("POST", "/api/friends/groups", data, onSuccess, onError, true);
 }
 
-void HttpApiClient::deleteFriendGroup(const QString& groupName)
+void HttpApiClient::deleteFriendGroup(const QString& groupName,
+                                      SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("DELETE", QString("/api/friends/groups/%1").arg(groupName), QJsonObject());
+    sendHttpRequest("DELETE", QString("/api/friends/groups/%1").arg(groupName), QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::renameFriendGroup(const QString& oldName, const QString& newName)
+void HttpApiClient::renameFriendGroup(const QString& oldName, const QString& newName,
+                                      SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["newname"] = newName;
-    sendAuthenticatedRequest("PUT", QString("/api/friends/groups/%1").arg(oldName), data);
+    sendHttpRequest("PUT", QString("/api/friends/groups/%1").arg(oldName), data, onSuccess, onError, true);
 }
 
-// ==================== 消息免打扰 ====================
-
-void HttpApiClient::mutePrivateConversation(const QString& targetUserUuid)
+void HttpApiClient::mutePrivateConversation(const QString& targetUserUuid,
+                                            SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("PUT", QString("/api/conversations/users/%1/mute").arg(targetUserUuid), QJsonObject());
+    sendHttpRequest("PUT", QString("/api/conversations/users/%1/mute").arg(targetUserUuid),
+                   QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::unmutePrivateConversation(const QString& targetUserUuid)
+void HttpApiClient::unmutePrivateConversation(const QString& targetUserUuid,
+                                              SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("PUT", QString("/api/conversations/users/%1/unmute").arg(targetUserUuid), QJsonObject());
+    sendHttpRequest("PUT", QString("/api/conversations/users/%1/unmute").arg(targetUserUuid),
+                   QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::muteGroupConversation(const QString& groupUuid)
+void HttpApiClient::muteGroupConversation(const QString& groupUuid,
+                                          SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("PUT", QString("/api/conversations/groups/%1/mute").arg(groupUuid), QJsonObject());
+    sendHttpRequest("PUT", QString("/api/conversations/groups/%1/mute").arg(groupUuid),
+                   QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::unmuteGroupConversation(const QString& groupUuid)
+void HttpApiClient::unmuteGroupConversation(const QString& groupUuid,
+                                            SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("PUT", QString("/api/conversations/groups/%1/unmute").arg(groupUuid), QJsonObject());
+    sendHttpRequest("PUT", QString("/api/conversations/groups/%1/unmute").arg(groupUuid),
+                   QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getPrivateMessagesPage(const QString& uid, int page, int size)
+void HttpApiClient::getPrivateMessagesPage(const QString& uid, int page, int size,
+                                           SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", QString("/api/messages/private/%1/page?page=%2&size=%3").arg(uid).arg(page).arg(size), QJsonObject());
+    sendHttpRequest("GET", QString("/api/messages/private/%1/page?page=%2&size=%3").arg(uid).arg(page).arg(size),
+                   QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getPrivateMessagesBefore(const QString& uid, const QString& msgUuid, int size)
+void HttpApiClient::getPrivateMessagesBefore(const QString& uid, const QString& msgUuid, int size,
+                                             SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", QString("/api/messages/private/%1/before?msgUuid=%2&size=%3").arg(uid).arg(msgUuid).arg(size), QJsonObject());
+    sendHttpRequest("GET", QString("/api/messages/private/%1/before?msgUuid=%2&size=%3").arg(uid).arg(msgUuid).arg(size),
+                   QJsonObject(), onSuccess, onError, true);
 }
 
-//void HttpApiClient::markMessageRead(const QString& mid)
-//{
-//    sendAuthenticatedRequest("PUT", QString("/api/messages/%1/read").arg(mid), QJsonObject());
-//}
-
-void HttpApiClient::getGroupMessagesPage(const QString& gid, int page, int size)
+void HttpApiClient::getGroupMessagesPage(const QString& gid, int page, int size,
+                                         SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", QString("/api/messages/group/%1/page?page=%2&size=%3").arg(gid).arg(page).arg(size), QJsonObject());
+    sendHttpRequest("GET", QString("/api/messages/group/%1/page?page=%2&size=%3").arg(gid).arg(page).arg(size),
+                   QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getGroupMessagesBefore(const QString& gid, const QString& msgUuid, int size)
+void HttpApiClient::getGroupMessagesBefore(const QString& gid, const QString& msgUuid, int size,
+                                           SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", QString("/api/messages/group/%1/before?msgUuid=%2&size=%3").arg(gid).arg(msgUuid).arg(size), QJsonObject());
+    sendHttpRequest("GET", QString("/api/messages/group/%1/before?msgUuid=%2&size=%3").arg(gid).arg(msgUuid).arg(size),
+                   QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getMyGroups()
+void HttpApiClient::getMyGroups(SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", "/api/groups/list", QJsonObject());
+    sendHttpRequest("GET", "/api/groups/list", QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getGroupDetail(const QString& groupUuid, const QVariant& context)
+void HttpApiClient::getGroupDetail(const QString& groupUuid,
+                                   SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", QString("/api/groups/%1").arg(groupUuid), QJsonObject(), context);
+    sendHttpRequest("GET", QString("/api/groups/%1").arg(groupUuid), QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getGroupMembers(const QString& groupUuid)
+void HttpApiClient::getGroupMembers(const QString& groupUuid,
+                                    SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", QString("/api/groups/%1/members").arg(groupUuid), QJsonObject());
+    sendHttpRequest("GET", QString("/api/groups/%1/members").arg(groupUuid), QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::updateStatus(const QString& status)
+void HttpApiClient::updateStatus(const QString& status,
+                                 SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["status"] = status;
-    sendAuthenticatedRequest("PUT", "/api/status", data);
+    sendHttpRequest("PUT", "/api/status", data, onSuccess, onError, true);
 }
 
-void HttpApiClient::getMultipleStatuses(const QJsonArray& userIds)
+void HttpApiClient::updateProfile(const QString& username, const QString& avatarUrl,
+                                  SuccessCallback onSuccess, ErrorCallback onError)
+{
+    QJsonObject data;
+    data["username"] = username;
+    data["avatarUrl"] = avatarUrl;
+    sendHttpRequest("PUT", "/api/user/profile", data, onSuccess, onError, true);
+}
+
+void HttpApiClient::updateGroupInfo(const QString& groupUuid, const QString& name, const QString& description,
+                                    const QString& avatarUrl, int maxMembers, bool isPublic,
+                                    SuccessCallback onSuccess, ErrorCallback onError)
+{
+    QJsonObject data;
+    data["name"] = name;
+    data["description"] = description;
+    data["avatarurl"] = avatarUrl;      // 修改为全小写
+    data["maxmembers"] = maxMembers;    // 修改为全小写
+    data["ispublic"] = isPublic;        // 修改为全小写
+    sendHttpRequest("PUT", QString("/api/groups/%1").arg(groupUuid), data, onSuccess, onError, true);
+}
+
+void HttpApiClient::getMultipleStatuses(const QJsonArray& userIds,
+                                        SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["useruuids"] = userIds;
-    sendAuthenticatedRequest("POST", "/api/status/batch", data);
+    sendHttpRequest("POST", "/api/status/batch", data, onSuccess, onError, true);
 }
 
-void HttpApiClient::getFriendDetail(const QString& friendUuid, const QVariant& context)
+void HttpApiClient::getFriendDetail(const QString& friendUuid,
+                                    SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", QString("/api/friends/%1/detail").arg(friendUuid), QJsonObject(), context);
+    sendHttpRequest("GET", QString("/api/friends/%1/detail").arg(friendUuid), QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::getUserInfo(const QString& userUuid, const QVariant& context)
+void HttpApiClient::getUserInfo(const QString& userUuid,
+                                SuccessCallback onSuccess, ErrorCallback onError)
 {
-    sendAuthenticatedRequest("GET", QString("/api/users/info/%1").arg(userUuid), QJsonObject(), context);
+    sendHttpRequest("GET", QString("/api/users/info/%1").arg(userUuid), QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::searchUsers(const QString& keyword)
-{
-    QString encoded = QUrl::toPercentEncoding(keyword);
-    sendAuthenticatedRequest("GET", QString("/api/users/search?keyword=%1").arg(encoded), QJsonObject());
-}
-
-void HttpApiClient::searchGroups(const QString& keyword)
+void HttpApiClient::searchUsers(const QString& keyword,
+                                SuccessCallback onSuccess, ErrorCallback onError)
 {
     QString encoded = QUrl::toPercentEncoding(keyword);
-    sendAuthenticatedRequest("GET", QString("/api/groups/search?keyword=%1").arg(encoded), QJsonObject());
+    sendHttpRequest("GET", QString("/api/users/search?keyword=%1").arg(encoded), QJsonObject(), onSuccess, onError, true);
 }
 
-void HttpApiClient::uploadAvatarFile(const QString& fileName, const QString& mimeType,
-                               qint64 fileSize, const QByteArray& fileData)
+void HttpApiClient::searchGroups(const QString& keyword,
+                                 SuccessCallback onSuccess, ErrorCallback onError)
+{
+    QString encoded = QUrl::toPercentEncoding(keyword);
+    sendHttpRequest("GET", QString("/api/groups/search?keyword=%1").arg(encoded), QJsonObject(), onSuccess, onError, true);
+}
+
+void HttpApiClient::uploadUserAvatarFile(const QString& fileName, const QString& mimeType,
+                                     qint64 fileSize, const QByteArray& fileData,
+                                     SuccessCallback onSuccess, ErrorCallback onError)
 {
     QJsonObject data;
     data["filetype"] = "avatar";
     data["mimetype"] = mimeType;
     data["filesize"] = fileSize;
 
-    // 直接发送请求，不使用 sendAuthenticatedRequest，以便绑定文件数据到 reply
+    QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    if (onSuccess) m_successCallbacks[requestId] = onSuccess;
+    if (onError) m_errorCallbacks[requestId] = onError;
+
     QUrl url(m_serverUrl + "/api/files/record");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Connection", "close");
-    request.setRawHeader("Authorization", QString("Bearer %1").arg(UserSession::instance()->token()).toUtf8());
+    addAuthHeader(request);
 
     QNetworkReply* reply = m_nam->post(request, QJsonDocument(data).toJson());
     if (reply) {
         m_pendingReplies.append(reply);
-        // 将文件数据绑定到 reply 对象，每个请求携带自己的文件数据
+        reply->setProperty("requestId", requestId);
         reply->setProperty("fileData", fileData);
-        // 不需要单独连接信号，m_nam 的 finished 信号已经连接到 onReplyFinished
     }
 }
 
-QString HttpApiClient::extractUuidFromUrl(const QString& url, const QString& prefix) const
+void HttpApiClient::uploadGroupAvatarFile(const QString& groupUuid, const QString& fileName, const QString& mimeType,
+                                          qint64 fileSize, const QByteArray& fileData,
+                                          SuccessCallback onSuccess, ErrorCallback onError)
 {
-    int startIndex = url.indexOf(prefix) + prefix.length();
-    int endIndex = url.indexOf("/", startIndex);
-    if (endIndex == -1) {
-        endIndex = url.indexOf("?", startIndex);
+    QJsonObject data;
+    data["filetype"] = "group_avatar";
+    data["mimetype"] = mimeType;
+    data["filesize"] = fileSize;
+    data["targetuuid"] = groupUuid;  // 传入群UUID，用于自动更新群聊头像
+
+    QString requestId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    if (onSuccess) m_successCallbacks[requestId] = onSuccess;
+    if (onError) m_errorCallbacks[requestId] = onError;
+
+    QUrl url(m_serverUrl + "/api/files/record");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("Connection", "close");
+    addAuthHeader(request);
+
+    QNetworkReply* reply = m_nam->post(request, QJsonDocument(data).toJson());
+    if (reply) {
+        m_pendingReplies.append(reply);
+        reply->setProperty("requestId", requestId);
+        reply->setProperty("fileData", fileData);
     }
-    if (endIndex == -1) {
-        return url.mid(startIndex);
-    }
-    return url.mid(startIndex, endIndex - startIndex);
 }

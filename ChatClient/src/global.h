@@ -65,11 +65,13 @@
 #include <QtWidgets/QTabWidget>
 #include <QtWidgets/QFileDialog>
 #include <QtWidgets/QTextEdit>
+#include <QSpinBox>
 #include <QScrollBar>
 #include <QTextFrame>
 #include <QMenu>
 #include <QTextTable>
 #include <QInputDialog>
+#include <QStatusBar>
 
 // QtGui 头文件
 #include <QPixmap>

@@ -11,31 +11,31 @@ AsyncAvatarLoader::~AsyncAvatarLoader() = default;
 
 // ---- public API ----
 
-void AsyncAvatarLoader::load(const QString& url, const QString& cacheKey,
+void AsyncAvatarLoader::load(const QString& url, const QString& /*cacheKey*/,
                              const QSize& targetSize)
 {
     if (url.isEmpty()) {
-        emit avatarReady(cacheKey, QPixmap());
+        emit avatarReady(url, QPixmap());
         return;
     }
-    QString path = cachePath(cacheKey);
+    QString path = cachePath(url);
     if (QFile::exists(path)) {
         QPixmap pix(path);
         if (!pix.isNull()) {
-            emit avatarReady(cacheKey,
+            emit avatarReady(url,
                 pix.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
             return;
         }
     }
     QNetworkRequest req(url);
     QNetworkReply* reply = m_nam->get(req);
-    m_pendingKeys.insert(reply, cacheKey);
+    m_pendingKeys.insert(reply, url);
     m_pendingSizes.insert(reply, targetSize);
 }
 
-QPixmap AsyncAvatarLoader::getCached(const QString& cacheKey, const QSize& targetSize)
+QPixmap AsyncAvatarLoader::getCached(const QString& url, const QSize& targetSize)
 {
-    QString path = cachePath(cacheKey);
+    QString path = cachePath(url);
     if (QFile::exists(path)) {
         QPixmap pix(path);
         if (!pix.isNull())
@@ -95,24 +95,30 @@ QString AsyncAvatarLoader::cacheDir()
     return QCoreApplication::applicationDirPath() + "/avatar_cache";
 }
 
-QString AsyncAvatarLoader::cachePath(const QString& cacheKey)
+QString AsyncAvatarLoader::cachePath(const QString& url)
 {
-    QDir dir(cacheDir());
-    if (!dir.exists()) dir.mkpath(cacheDir());
-    QByteArray h = QCryptographicHash::hash(cacheKey.toUtf8(), QCryptographicHash::Md5);
-    return cacheDir() + "/" + QString(h.toHex()) + ".png";
+    QUrl qUrl(url);
+    QString path = qUrl.path();  // 获取路径部分，如 "/avatar/85dabbeb-4048-4de4-a5cb-56d52c0d453e/1780316997725_8580"
+    
+    // 移除开头的 "/"
+    if (path.startsWith("/")) {
+        path = path.mid(1);
+    }
+    
+    QString fullPath = cacheDir() + "/" + path;
+    return fullPath;
 }
 
 void AsyncAvatarLoader::onReplyFinished(QNetworkReply* reply)
 {
     if (!reply) return;
 
-    QString cacheKey = m_pendingKeys.take(reply);
+    QString url = m_pendingKeys.take(reply);
     QSize targetSize = m_pendingSizes.take(reply);
 
-    if (reply->error() != QNetworkReply::NoError || cacheKey.isEmpty()) {
+    if (reply->error() != QNetworkReply::NoError || url.isEmpty()) {
         reply->deleteLater();
-        emit avatarReady(cacheKey, QPixmap());
+        emit avatarReady(url, QPixmap());
         return;
     }
 
@@ -121,18 +127,26 @@ void AsyncAvatarLoader::onReplyFinished(QNetworkReply* reply)
 
     QPixmap pix;
     if (!pix.loadFromData(data)) {
-        emit avatarReady(cacheKey, QPixmap());
+        emit avatarReady(url, QPixmap());
         return;
     }
 
     // 存磁盘缓存
-    QString path = cachePath(cacheKey);
+    QString path = cachePath(url);
+    
+    // 确保目录存在
+    QFileInfo fileInfo(path);
+    QDir dir = fileInfo.dir();
+    if (!dir.exists()) {
+        dir.mkpath(dir.path());
+    }
+    
     QFile file(path);
     if (file.open(QIODevice::WriteOnly)) {
         pix.save(&file, "PNG");
         file.close();
     }
 
-    emit avatarReady(cacheKey,
+    emit avatarReady(url,
         pix.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }

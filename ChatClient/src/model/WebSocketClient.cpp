@@ -5,7 +5,8 @@
 WebSocketClient* WebSocketClient::s_instance = nullptr;
 
 WebSocketClient::WebSocketClient(QObject* parent)
-    : QObject(parent), m_webSocket(nullptr), m_wsThread(new QThread())
+    : QObject(parent), m_webSocket(nullptr), m_wsThread(new QThread()),
+      m_reconnectTimer(nullptr), m_reconnectDelay(5000), m_manualDisconnect(false)
 {
     initResponseHandlers();
     moveToThread(m_wsThread);
@@ -19,6 +20,7 @@ WebSocketClient::~WebSocketClient()
         m_wsThread->wait();
         delete m_wsThread;
     }
+    stopReconnectTimer();
 }
 
 WebSocketClient* WebSocketClient::instance()
@@ -37,6 +39,8 @@ void WebSocketClient::setWsUrl(const QString& url)
 void WebSocketClient::connectWebSocket()
 {
     QMetaObject::invokeMethod(this, [this]() {
+        m_manualDisconnect = false;
+        
         if (m_webSocket) {
             disconnect(m_webSocket, nullptr, this, nullptr);
             m_webSocket->close();
@@ -65,9 +69,14 @@ void WebSocketClient::connectWebSocket()
 void WebSocketClient::disconnectWebSocket()
 {
     QMetaObject::invokeMethod(this, [this]() {
+        m_manualDisconnect = true;
+        stopReconnectTimer();
+        
         if (m_webSocket) {
             m_webSocket->close();
         }
+        
+        emit connectionStatusChanged(false, "已断开连接");
     }, Qt::QueuedConnection);
 }
 
@@ -108,7 +117,10 @@ void WebSocketClient::sendMessage(const QString& type, const QJsonObject& data)
 void WebSocketClient::onConnected()
 {
     qDebug() << "WebSocket connected";
+    m_reconnectDelay = 5000;
+    stopReconnectTimer();
     emit connected();
+    emit connectionStatusChanged(true, "已连接");
 }
 
 void WebSocketClient::onDisconnected()
@@ -119,8 +131,16 @@ void WebSocketClient::onDisconnected()
 
     if (m_webSocket->closeCode() == 1001 || m_webSocket->closeReason().contains("kick")) {
         emit kickedByServer();
+        emit connectionStatusChanged(false, "已被服务器踢出");
+        return;
     }
+    
     emit disconnected();
+    
+    if (!m_manualDisconnect) {
+        emit connectionStatusChanged(false, "连接断开，正在尝试重连...");
+        startReconnectTimer();
+    }
 }
 
 void WebSocketClient::onTextMessageReceived(const QString& message)
@@ -188,7 +208,40 @@ void WebSocketClient::onError(QAbstractSocket::SocketError error)
 {
     Q_UNUSED(error);
     qDebug() << "WebSocket error:" << m_webSocket->errorString();
-    emit errorOccurred(m_webSocket->errorString());
+    
+    if (!m_manualDisconnect) {
+        emit connectionStatusChanged(false, QString("连接错误: %1").arg(m_webSocket->errorString()));
+        startReconnectTimer();
+    }
+}
+
+void WebSocketClient::onReconnectTimer()
+{
+    if (!m_manualDisconnect) {
+        qDebug() << "Attempting to reconnect...";
+        connectWebSocket();
+    }
+}
+
+void WebSocketClient::startReconnectTimer()
+{
+    if (!m_reconnectTimer) {
+        m_reconnectTimer = new QTimer(this);
+        connect(m_reconnectTimer, &QTimer::timeout, this, &WebSocketClient::onReconnectTimer);
+    }
+    
+    m_reconnectTimer->stop();
+    m_reconnectTimer->start(m_reconnectDelay);
+    
+    m_reconnectDelay = qMin(m_reconnectDelay * 2, 30000);
+}
+
+void WebSocketClient::stopReconnectTimer()
+{
+    if (m_reconnectTimer) {
+        m_reconnectTimer->stop();
+    }
+    m_reconnectDelay = 5000;
 }
 
 void WebSocketClient::initResponseHandlers()
@@ -199,7 +252,8 @@ void WebSocketClient::initResponseHandlers()
     };
 
     m_responseHandlers["handle_friend_request_response"] = [this](const QJsonObject& obj) {
-        emit friendRequestHandled(obj["success"].toBool());
+        QString requestUuid = obj["requestuuid"].toString();
+        emit friendRequestHandled(requestUuid, obj["success"].toBool());
     };
 
     m_responseHandlers["delete_friend_response"] = [this](const QJsonObject& obj) {
@@ -212,7 +266,8 @@ void WebSocketClient::initResponseHandlers()
     };
 
     m_responseHandlers["handle_group_request_response"] = [this](const QJsonObject& obj) {
-        emit groupRequestHandled(obj["success"].toBool());
+        QString requestUuid = obj["uuid"].toString();
+        emit groupRequestHandled(requestUuid, obj["success"].toBool());
     };
 
     m_responseHandlers["create_group_response"] = [this](const QJsonObject& obj) {

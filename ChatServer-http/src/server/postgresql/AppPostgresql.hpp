@@ -63,7 +63,7 @@ public:
 
     // 更新用户信息
     QUERY(updateUser, 
-          "UPDATE users SET username = :username, avatar_url = :avatarUrl WHERE id = :userId AND deleted_at IS NULL;",
+          "UPDATE users SET username = :username, avatar_url = :avatarUrl WHERE id = :userId AND deleted_at IS NULL RETURNING CAST(uuid AS VARCHAR) AS useruuid;",
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::String, username),
           PARAM(oatpp::String, avatarUrl))
@@ -245,12 +245,12 @@ public:
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::Int64, friendId))
 
-    // 获取拉黑用户列表
+    // 获取拉黑用户列表（我拉黑的人）
     QUERY(getBlockedUsers,
           "SELECT CAST(u.uuid AS VARCHAR) AS frienduuid, u.username, u.avatar_url AS avatarurl, u.status, f.remark, f.group_name AS groupname "
         " FROM friendships f "
         "JOIN users u ON f.friend_id = u.id "
-        " WHERE f.user_id = :userId AND f.status = 'blocked' AND u.deleted_at IS NULL; ",
+        " WHERE f.user_id = :userId AND f.status = 'block' AND u.deleted_at IS NULL; ",
           PARAM(oatpp::Int64, userId))
 
     // 更新好友备注
@@ -291,15 +291,25 @@ public:
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::Int64, friendId))
 
-    // 拉黑用户
-    QUERY(blockUser, 
-          "UPDATE friendships SET status = 'blocked' WHERE user_id = :userId AND friend_id = :friendId;",
+    // 拉黑用户（单条SQL同时更新两条记录）
+    // user → target: status = 'block' (我拉黑了对方)
+    // target → user: status = 'blocked' (对方被我拉黑了)
+    QUERY(blockUser,
+          "UPDATE friendships SET status = CASE "
+          "  WHEN user_id = :userId AND friend_id = :friendId THEN 'block' "
+          "  WHEN user_id = :friendId AND friend_id = :userId THEN 'blocked' "
+          "END "
+          "WHERE (user_id = :userId AND friend_id = :friendId) "
+          "   OR (user_id = :friendId AND friend_id = :userId);",
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::Int64, friendId))
 
-    // 取消拉黑
-    QUERY(unblockUser, 
-          "UPDATE friendships SET status = 'accepted' WHERE user_id = :userId AND friend_id = :friendId;",
+    // 取消拉黑（单条SQL同时更新两条记录）
+    // 将双方状态都恢复为 'accepted'
+    QUERY(unblockUser,
+          "UPDATE friendships SET status = 'accepted' "
+          "WHERE (user_id = :userId AND friend_id = :friendId) "
+          "   OR (user_id = :friendId AND friend_id = :userId);",
           PARAM(oatpp::Int64, userId),
           PARAM(oatpp::Int64, friendId))
 
@@ -591,6 +601,13 @@ QUERY(sendPrivateMessage,
           PARAM(oatpp::String, avatarUrl),
           PARAM(oatpp::Int32, maxMembers),
           PARAM(oatpp::Boolean, isPublic))
+    
+    // 仅更新群组头像（通过群UUID）
+    QUERY(updateGroupAvatarByUuid,
+          "UPDATE groups SET avatar_url = :avatarUrl WHERE CAST(uuid AS VARCHAR) = :groupUuid AND owner_id = :ownerId;",
+          PARAM(oatpp::String, groupUuid),
+          PARAM(oatpp::Int64, ownerId),
+          PARAM(oatpp::String, avatarUrl))
 
     // 解散群组
     QUERY(dissolveGroup, 
@@ -901,8 +918,8 @@ QUERY(sendPrivateMessage,
 
     // ==================== 文件相关 ====================
     QUERY(createFileRecord,
-        "INSERT INTO files (file_name, file_size,file_type, mime_type, user_id, upload_status) "
-        "VALUES (:fileName, :fileSize,:fileType, :mimeType, :userId, 'uploading') "
+        "INSERT INTO files (file_name, file_size,file_type, mime_type, user_id, target_uuid, upload_status) "
+        "VALUES (:fileName, :fileSize,:fileType, :mimeType, :userId, :targetUuid, 'uploading') "
         "RETURNING CAST(uuid AS VARCHAR) AS uuid, "
         "         file_name AS filename, "
         "         file_size AS filesize, "
@@ -912,7 +929,8 @@ QUERY(sendPrivateMessage,
         PARAM(oatpp::Int64, fileSize),
         PARAM(oatpp::String, fileType),
         PARAM(oatpp::String, mimeType),
-        PARAM(oatpp::Int64, userId))
+        PARAM(oatpp::Int64, userId),
+        PARAM(oatpp::String, targetUuid))
 
         QUERY(updateFileStatus,
             "UPDATE files SET upload_status = :status, file_path = :filePath WHERE id = :fileId "
@@ -953,7 +971,8 @@ QUERY(sendPrivateMessage,
             "       f.file_path AS fileurl, "
             "       f.mime_type AS mimetype, "
             "       CAST(u.uuid AS VARCHAR) AS uploaderuuid, "
-            "       TO_CHAR(f.created_at, 'YYYY-MM-DD HH24:MI:SS') AS uploadtime "
+            "       TO_CHAR(f.created_at, 'YYYY-MM-DD HH24:MI:SS') AS uploadtime, "
+            "       f.target_uuid AS targetuuid "
             "FROM files f "
             "JOIN users u ON f.user_id = u.id "
             "WHERE f.id = :id",

@@ -32,7 +32,7 @@ class SearchUserVO : public oatpp::DTO {
     DTO_FIELD(String, avatarUrl, "avatarurl");
     DTO_FIELD(String, status, "status");
     DTO_FIELD(String, lastSeen, "lastseen");
-    DTO_FIELD(String, friendshipStatus, "friendshipstatus"); // "accepted"/"pending"/"blocked"/"none"
+    DTO_FIELD(String, friendshipStatus, "friendshipstatus"); // "accepted"/"pending"/"block"/"blocked"/"none"
 };
 
 

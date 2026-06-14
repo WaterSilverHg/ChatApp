@@ -3,6 +3,7 @@
 
 #include "../global.h"
 #include <QThread>
+#include <QTimer>
 
 class WebSocketClient : public QObject
 {
@@ -48,15 +49,16 @@ public:
 signals:
     void connected();
     void disconnected();
+    void connectionStatusChanged(bool connected, const QString& statusText);
     void kickedByServer();
     void errorOccurred(const QString& errorMessage);
 
     void friendRequestSent(const QJsonObject& result);
-    void friendRequestHandled(bool success);
+    void friendRequestHandled(const QString& requestUuid, bool success);
     void friendDeleted(bool success);
 
     void groupRequestSent(const QJsonObject& result);
-    void groupRequestHandled(bool success);
+    void groupRequestHandled(const QString& requestUuid, bool success);
 
     void groupCreated(const QJsonObject& group);
     void groupUpdated(bool success);
@@ -87,6 +89,7 @@ private slots:
     void onDisconnected();
     void onTextMessageReceived(const QString& message);
     void onError(QAbstractSocket::SocketError error);
+    void onReconnectTimer();
 
 private:
     explicit WebSocketClient(QObject* parent = nullptr);
@@ -95,6 +98,8 @@ private:
 
     void sendMessage(const QString& type, const QJsonObject& data);
     void initResponseHandlers();
+    void startReconnectTimer();
+    void stopReconnectTimer();
 
     using ResponseHandler = std::function<void(const QJsonObject&)>;
     QHash<QString, ResponseHandler> m_responseHandlers;
@@ -104,6 +109,9 @@ private:
     QWebSocket* m_webSocket;
     QString m_wsUrl;
     QThread* m_wsThread;
+    QTimer* m_reconnectTimer;
+    int m_reconnectDelay;
+    bool m_manualDisconnect;
 };
 
 #endif // WEBSOCKETCLIENT_H

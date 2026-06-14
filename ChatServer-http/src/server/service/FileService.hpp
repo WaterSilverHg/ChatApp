@@ -55,7 +55,7 @@ public:
         
         oatpp::String cosObjectName = generateCosObjectName(request->fileType,currentUserUuId);
         
-        auto result = m_appPostgresql->createFileRecord(cosObjectName, request->fileSize, request->fileType, request->mimeType, user_id);
+        auto result = m_appPostgresql->createFileRecord(cosObjectName, request->fileSize, request->fileType, request->mimeType, user_id, request->targetUuid);
         #ifdef SQLCHECK
         if(!result->isSuccess()) {
             OATPP_LOGE("SQL_ERROR", "%s", result->getErrorMessage()->c_str());
@@ -132,6 +132,25 @@ public:
             }
             #endif
             OATPP_ASSERT_HTTP(updateAvatarResult->isSuccess(), Status::CODE_500, "更新用户头像失败");
+        }
+        
+        // 如果是群聊头像类型，自动更新群聊头像
+        if (fileDetailInfo->fileType && fileDetailInfo->fileType == "group_avatar") {
+            if (fileDetailInfo->targetUuid && !fileDetailInfo->targetUuid->empty()) {
+                // 将上传者 UUID 转换为 userId，用于验证群主身份
+                auto uploaderId = m_idCache->getUserId(fileDetailInfo->uploaderUuid);
+                OATPP_ASSERT_HTTP(uploaderId > 0, Status::CODE_404, "上传者不存在");
+                
+                // 更新群聊头像（只有群主才能更新）
+                auto updateGroupAvatarResult = m_appPostgresql->updateGroupAvatarByUuid(
+                    fileDetailInfo->targetUuid, uploaderId, oatpp::String(fileUrl));
+                #ifdef SQLCHECK
+                if(!updateGroupAvatarResult->isSuccess()) {
+                    OATPP_LOGE("SQL_ERROR", "%s", updateGroupAvatarResult->getErrorMessage()->c_str());
+                }
+                #endif
+                // 不强制要求更新成功，因为用户可能已经不是群主了
+            }
         }
         
         return updateResult->fetch<oatpp::Vector<oatpp::Object<FileInfoVO>>>()[0];

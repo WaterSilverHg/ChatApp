@@ -72,10 +72,11 @@ void RequestDialog::buildFriendRequestItem(const QJsonObject& req, QListWidget* 
     rejectBtn->setStyleSheet("QPushButton { background: #E88B8B; color: white; border: none; padding: 4px 8px; border-radius: 4px; } QPushButton:hover { background: #D07070; }");
 
     auto* ws = WebSocketClient::instance();
-    connect(acceptBtn, &QPushButton::clicked, [this, requestUuid, list, item,ws]() {
+    connect(acceptBtn, &QPushButton::clicked, [this, requestUuid, list, item, ws]() {
         auto* conn = new QMetaObject::Connection;
         *conn = connect(WebSocketClient::instance(), &WebSocketClient::friendRequestHandled, this,
-            [list, item, conn](bool success) {
+            [list, item, conn, requestUuid](const QString& uuid, bool success) {
+                if (uuid != requestUuid) return;
                 if (success && item) {
                     int row = list->row(item);
                     if (row >= 0) {
@@ -89,10 +90,11 @@ void RequestDialog::buildFriendRequestItem(const QJsonObject& req, QListWidget* 
         ws->handleFriendRequest(requestUuid, "accepted");
     });
 
-    connect(rejectBtn, &QPushButton::clicked, [this, requestUuid, list, item,ws]() {
+    connect(rejectBtn, &QPushButton::clicked, [this, requestUuid, list, item, ws]() {
         auto* conn = new QMetaObject::Connection;
         *conn = connect(WebSocketClient::instance(), &WebSocketClient::friendRequestHandled, this,
-            [list, item, conn](bool success) {
+            [list, item, conn, requestUuid](const QString& uuid, bool success) {
+                if (uuid != requestUuid) return;
                 if (success && item) {
                     int row = list->row(item);
                     if (row >= 0) {
@@ -162,10 +164,11 @@ void RequestDialog::buildGroupRequestItem(const QJsonObject& req, QListWidget* l
     rejectBtn->setStyleSheet("QPushButton { background: #E88B8B; color: white; border: none; padding: 4px 8px; border-radius: 4px; } QPushButton:hover { background: #D07070; }");
 
     auto* ws = WebSocketClient::instance();
-    connect(acceptBtn, &QPushButton::clicked, [this, requestUuid, list, item,ws]() {
+    connect(acceptBtn, &QPushButton::clicked, [this, requestUuid, list, item, ws]() {
         auto* conn = new QMetaObject::Connection;
         *conn = connect(WebSocketClient::instance(), &WebSocketClient::groupRequestHandled, this,
-            [list, item, conn](bool success) {
+            [list, item, conn, requestUuid](const QString& uuid, bool success) {
+                if (uuid != requestUuid) return;
                 if (success && item) {
                     int row = list->row(item);
                     if (row >= 0) {
@@ -179,10 +182,11 @@ void RequestDialog::buildGroupRequestItem(const QJsonObject& req, QListWidget* l
         ws->handleGroupRequest(requestUuid, "accepted");
     });
 
-    connect(rejectBtn, &QPushButton::clicked, [this, requestUuid, list, item,ws]() {
+    connect(rejectBtn, &QPushButton::clicked, [this, requestUuid, list, item, ws]() {
         auto* conn = new QMetaObject::Connection;
         *conn = connect(WebSocketClient::instance(), &WebSocketClient::groupRequestHandled, this,
-            [list, item, conn](bool success) {
+            [list, item, conn, requestUuid](const QString& uuid, bool success) {
+                if (uuid != requestUuid) return;
                 if (success && item) {
                     int row = list->row(item);
                     if (row >= 0) {

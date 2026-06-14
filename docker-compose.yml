@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15
+    container_name: chatapp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-your_db_password}
+      POSTGRES_DB: chatroom
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./ChatServer-sql/psqlinit1.sql:/docker-entrypoint-initdb.d/01-init-db.sql
+      - ./ChatServer-sql/psqlinit2.sql:/docker-entrypoint-initdb.d/02-init-tables.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chatroom"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: chatapp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # HTTP API 服务器
+  http-server:
+    build:
+      context: .
+      dockerfile: ChatServer-http/Dockerfile
+    container_name: chatapp-http
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./ChatServer-http/config.json:/app/ChatServer-http/build/bin/config.json:ro
+    environment:
+      - TZ=Asia/Shanghai
+
+  # WebSocket 实时服务器
+  websocket-server:
+    build:
+      context: .
+      dockerfile: ChatServer-websocket/Dockerfile
+    container_name: chatapp-websocket
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "4567:4567"
+    volumes:
+      - ./ChatServer-websocket/config.json:/app/ChatServer-websocket/build/bin/config.json:ro
+    environment:
+      - TZ=Asia/Shanghai
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: chatapp-network

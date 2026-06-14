@@ -160,6 +160,22 @@ public:
     //    return createDtoResponse(Status::CODE_200, m_groupService->handleGroupRequest(authObject->userUuid, requestUuid, request));
     //}
 
+    ENDPOINT_INFO(updateGroupInfo) {
+        info->summary = "更新群信息";
+        info->description = "更新群名称、描述、头像等信息（仅限群主）";
+        info->addResponse<Object<GroupDetailInfoVO>>(Status::CODE_200, "application/json", "更新成功");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_401, "application/json", "用户不存在或已失效");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_403, "application/json", "无权限操作（仅限群主）");
+        info->addResponse<Object<ErrorStatusDto>>(Status::CODE_404, "application/json", "群组不存在");
+        info->addConsumes<Object<UpdateGroupRequestDTO>>("application/json");
+        info->addSecurityRequirement("BearerAuth");
+    }
+    ENDPOINT("PUT", "/api/groups/{groupUuid}", updateGroupInfo,
+        PATH(String, groupUuid, "groupUuid"),
+        BODY_DTO(Object<UpdateGroupRequestDTO>, request),
+        AUTHORIZATION(std::shared_ptr<Appjwt::Payload>, authObject)) {
+        return createDtoResponse(Status::CODE_200, m_groupService->updateGroup(authObject->userUuid, groupUuid, request));
+    }
 };
 
 #include OATPP_CODEGEN_END(ApiController)

@@ -35,16 +35,10 @@ public:
             auto friendshipStatus = friendshipStatus1Result->fetch<oatpp::Vector<oatpp::Object<StatusDTO>>>()[0]->status;
             if (friendshipStatus == "accepted") {
                 ASYNC_THROW_IF(false, "Already friends, cannot send friend request");
+            } else if (friendshipStatus == "block") {
+                ASYNC_THROW_IF(false, "You have blocked this user, cannot send friend request");
             } else if (friendshipStatus == "blocked") {
-                ASYNC_THROW_IF(false, "User has been blocked, cannot send friend request");
-            }
-            auto friendshipStatus2Result = m_appClient->checkFriendshipStatus(tuser_id, user_id);
-            ASYNC_THROW_IF(friendshipStatus2Result->isSuccess(), friendshipStatus2Result->getErrorMessage());
-            if (friendshipStatus2Result->hasMoreToFetch()) {
-                friendshipStatus = friendshipStatus2Result->fetch<oatpp::Vector<oatpp::Object<StatusDTO>>>()[0]->status;
-                if (friendshipStatus == "blocked") {
-                    ASYNC_THROW_IF(false, "You have been blocked by this user, cannot send friend request");
-                }
+                ASYNC_THROW_IF(false, "This user has blocked you, cannot send friend request");
             }
         }
 
@@ -281,7 +275,7 @@ public:
     oatpp::Boolean blockUser(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid) {
         ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
         ASYNC_THROW_IF(targetUserUuid && !targetUserUuid->empty(), "Target user ID cannot be empty");
-        
+
         auto user_id = m_idCache->getUserId(currentUserIdHeader);
         ASYNC_THROW_IF(user_id > 0, "User does not exist or has been deactivated");
 
@@ -308,7 +302,7 @@ public:
     oatpp::Boolean unblockUser(const oatpp::String& currentUserIdHeader, const oatpp::String& targetUserUuid) {
         ASYNC_THROW_IF(currentUserIdHeader && !currentUserIdHeader->empty(), "User ID cannot be empty");
         ASYNC_THROW_IF(targetUserUuid && !targetUserUuid->empty(), "Target user ID cannot be empty");
-        
+
         auto user_id = m_idCache->getUserId(currentUserIdHeader);
         ASYNC_THROW_IF(user_id > 0, "User does not exist or has been deactivated");
 
@@ -320,7 +314,7 @@ public:
 
         if (friendshipStatusResult->hasMoreToFetch()) {
             auto friendshipStatus = friendshipStatusResult->fetch<oatpp::Vector<oatpp::Object<StatusDTO>>>()[0]->status;
-            if (friendshipStatus != "blocked") {
+            if (friendshipStatus != "block") {
                 ASYNC_THROW_IF(false, "Only blocked users can be unblocked");
             }
         } else {

@@ -25,6 +25,7 @@ class FileDetailInfoVO : public oatpp::DTO {
     DTO_FIELD(String, fileUrl, "fileurl");
     DTO_FIELD(String, uploaderUuid, "uploaderuuid");
     DTO_FIELD(String, uploadtime, "uploadtime");
+    DTO_FIELD(String, targetUuid, "targetuuid");  // 关联目标UUID
 };
 
 

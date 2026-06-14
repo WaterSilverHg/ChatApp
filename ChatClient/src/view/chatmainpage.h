@@ -73,6 +73,19 @@ private:
                        bool isSelf,
                        const QString& timeStr,
                        const QString& messageType);
+
+    void prependMessage(const QString& username,
+                        const QString& userUuid,
+                        const QString& msguuid,
+                        const QString& message,
+                        bool isSelf,
+                        const QString& timeStr,
+                        const QString& messageType);
+
+    // 刷新数据的辅助函数
+    void refreshConversations();
+    void refreshFriends();
+    void refreshMyGroups();
     QString getCurrentTime();
     void updateUserInfo();
     void showFriendRequestsDialog(const QJsonArray& requests);
@@ -136,6 +149,7 @@ private:
     HttpApiClient* m_httpClient;
     WebSocketClient* m_wsClient;
     AsyncAvatarLoader* m_avatarLoader;
+    QHash<QString, QMetaObject::Connection> m_avatarConnections;
     MessageCacheManager* m_cacheManager;
     
     QListWidget* m_searchUserResultList = nullptr;

@@ -12,6 +12,9 @@ void MessageCacheWorker::ensureDir() {
 }
 
 QString MessageCacheWorker::cacheDirPath() const {
+    if (!m_currentUserUuid.isEmpty()) {
+        return QCoreApplication::applicationDirPath() + "/message_cache/" + m_currentUserUuid;
+    }
     return QCoreApplication::applicationDirPath() + "/message_cache";
 }
 
@@ -76,6 +79,7 @@ MessageCacheManager::MessageCacheManager(QObject* parent)
     connect(this, &MessageCacheManager::requestLoad,  m_worker, &MessageCacheWorker::doLoad);
     connect(this, &MessageCacheManager::requestSave,  m_worker, &MessageCacheWorker::doSave);
     connect(this, &MessageCacheManager::requestAppend,m_worker, &MessageCacheWorker::doAppend);
+    connect(this, &MessageCacheManager::requestSetUserUuid, m_worker, &MessageCacheWorker::setCurrentUserUuid);
 
     // worker 线程 → 主线程 的结果
     connect(m_worker, &MessageCacheWorker::loadFinished,
@@ -110,8 +114,19 @@ bool MessageCacheManager::hasMore(const QString& convUuid) const {
     return m_hasMore.value(convUuid, true);  // 默认还有更多
 }
 
+void MessageCacheManager::setCurrentUserUuid(const QString& uuid) {
+    m_currentUserUuid_main = uuid;
+    emit requestSetUserUuid(uuid);
+}
+
 bool MessageCacheManager::exists(const QString& convUuid) const {
-    QString path = QCoreApplication::applicationDirPath()
-                   + "/message_cache/" + convUuid + ".json";
+    // exists() 在 setCurrentUserUuid 之前可能被调用（构造期间），此时使用旧路径兜底
+    QString baseDir = QCoreApplication::applicationDirPath() + "/message_cache";
+    // 由于 worker 线程可能还没设置 uuid，这里需要在主线程侧维护一份 uuid 副本
+    // 简化处理：直接检查两个可能的路径
+    if (!m_currentUserUuid_main.isEmpty()) {
+        baseDir = baseDir + "/" + m_currentUserUuid_main;
+    }
+    QString path = baseDir + "/" + convUuid + ".json";
     return QFile::exists(path);
 }

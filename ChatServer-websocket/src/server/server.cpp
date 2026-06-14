@@ -40,6 +40,7 @@ static void run() {
 	router->addController(swaggerController);
 #endif
 
+
 	OATPP_COMPONENT(std::shared_ptr<oatpp::network::ConnectionHandler>, httpConnectionHandler, "http");
 	//OATPP_COMPONENT(std::shared_ptr<oatpp::websocket::AsyncConnectionHandler>, httpConnectionHandler, "ws-server-handler");
 	OATPP_COMPONENT(std::shared_ptr<oatpp::network::ServerConnectionProvider>, connectionProvider);

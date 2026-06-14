@@ -23,10 +23,6 @@ private slots:
     void on_backToLoginLink_clicked();
     void on_showPasswordCheckBox_toggled(bool checked);
     void on_sendCodeButton_clicked();
-    void onRegisterSuccess(const QJsonObject& data);
-    void onVerificationCodeSent(const QJsonObject& data);
-    void onError(const QString& errorMessage, int errorCode);
-    void onLoginSuccess(const QJsonObject& data);
     void onWebSocketConnected();
     void onWebSocketError(const QString& error);
 
@@ -46,5 +42,6 @@ private:
     QString m_pendingToken;
     QJsonObject m_pendingUser;
     QTimer m_countdownTimer;
+    QMetaObject::Connection m_countdownConnection;
     int m_codeCountdown;
 };

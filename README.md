@@ -174,7 +174,7 @@ WebSocket 消息使用 JSON 格式，通过 `"type"` 字段路由到对应处理
 |------|------|----------|
 | `users` | 用户表 | uuid, username, email, password_hash(bcrypt), status |
 | `user_settings` | 用户设置 | theme, language, notification_enabled |
-| `friendships` | 好友关系 | user_id, friend_id, status(pending/accepted/blocked/deleted) |
+| `friendships` | 好友关系 | user_id, friend_id, status(pending/accepted/block/blocked/deleted) |
 | `friend_requests` | 好友请求 | uuid, from_user_id, to_user_id, message, status |
 | `groups` | 群组 | uuid, name, owner_id, max_members, is_public |
 | `group_members` | 群成员 | group_id, user_id, role(owner/admin/member) |
@@ -212,7 +212,8 @@ vcpkg install oatpp:x64-windows \
 
 ```bash
 # 确保 PostgreSQL 运行中
-psql -U postgres -f ChatServer-sql/cmdinit.sql
+psql -U postgres -f ChatServer-sql/psqlinit1.sql
+psql -U postgres -d chatroom -f ChatServer-sql/psqlinit2.sql
 ```
 
 这将创建 `chatroom` 数据库及所有表、索引、触发器。
@@ -341,7 +342,7 @@ cd ChatClient
 
 ### 6. 客户端配置
 
-客户端连接地址在 [global.h](ChatClient/global.h) 中定义：
+客户端连接地址在 [ChatClient/src/global.h](ChatClient/src/global.h) 中定义：
 
 ```cpp
 static const QString HTTP_BASE_URL = "http://127.0.0.1:8080";
@@ -456,3 +457,130 @@ JWT 过期时间: 3 天 (`EXPIRESIN = 3600 * 24 * 3`, 在 [global.h](ChatServer-
 ## License
 
 本项目仅供学习使用。
+
+## Docker 部署
+
+### 快速启动 (Docker Compose)
+
+项目提供了完整的 Docker 配置，可一键部署所有服务端组件。
+
+#### 1. 准备配置文件
+
+```bash
+# 复制环境变量模板
+cp .env.example .env
+
+# 编辑 .env 文件，填写实际配置
+vim .env
+
+# 创建 HTTP 服务器配置
+cat > ChatServer-http/config.json << EOF
+{
+  "Pagination": 20,
+  "server_host": "0.0.0.0",
+  "server_port": 8080,
+  "postgresql_connection_string": "host=postgres port=5432 dbname=chatroom user=postgres password=your_db_password",
+  "redis_url": "tcp://redis:6379",
+  "jwt_secret": "your-jwt-secret-key-change-in-production",
+  "jwt_issuer": "chatapp-server",
+  "smtp_host": "smtp.qq.com",
+  "smtp_port": 465,
+  "sender_name": "ChatApp",
+  "sender_email": "your_email@qq.com",
+  "sender_password": "your_smtp_authorization_code",
+  "cos_app_id": "your_cos_app_id",
+  "cos_secret_id": "your_cos_secret_id",
+  "cos_secret_key": "your_cos_secret_key",
+  "cos_region": "ap-guangzhou",
+  "cos_bucket_name": "your-bucket-name"
+}
+EOF
+
+# 创建 WebSocket 服务器配置 (不需要 COS 配置)
+cat > ChatServer-websocket/config.json << EOF
+{
+  "Pagination": 20,
+  "server_host": "0.0.0.0",
+  "server_port": 4567,
+  "postgresql_connection_string": "host=postgres port=5432 dbname=chatroom user=postgres password=your_db_password",
+  "redis_url": "tcp://redis:6379",
+  "jwt_secret": "your-jwt-secret-key-change-in-production",
+  "jwt_issuer": "chatapp-server",
+  "smtp_host": "smtp.qq.com",
+  "smtp_port": 465,
+  "sender_name": "ChatApp",
+  "sender_email": "your_email@qq.com",
+  "sender_password": "your_smtp_authorization_code"
+}
+EOF
+```
+
+> **重要**: 两个服务器的 `jwt_secret` 必须一致！
+
+#### 2. 启动服务
+
+```bash
+# 构建并启动所有服务
+docker-compose up -d
+
+# 查看服务状态
+docker-compose ps
+
+# 查看日志
+docker-compose logs -f http-server
+docker-compose logs -f websocket-server
+```
+
+#### 3. 服务说明
+
+Docker Compose 会启动以下服务：
+
+| 服务 | 容器名 | 端口 | 说明 |
+|------|--------|------|------|
+| `postgres` | chatapp-postgres | 5432 | PostgreSQL 数据库 |
+| `redis` | chatapp-redis | 6379 | Redis 缓存 |
+| `http-server` | chatapp-http | 8080 | REST API 服务器 |
+| `websocket-server` | chatapp-websocket | 4567 | WebSocket 实时服务器 |
+
+#### 4. 停止服务
+
+```bash
+# 停止所有服务
+docker-compose down
+
+# 停止并删除数据卷 (清除数据库数据)
+docker-compose down -v
+```
+
+### 单独构建镜像
+
+如果只需要构建单个服务镜像：
+
+```bash
+# 构建 HTTP 服务器
+docker build -f ChatServer-http/Dockerfile -t chatapp-http .
+
+# 构建 WebSocket 服务器
+docker build -f ChatServer-websocket/Dockerfile -t chatapp-websocket .
+```
+
+### 客户端连接 Docker 服务
+
+修改 [ChatClient/src/global.h](ChatClient/src/global.h) 中的连接地址：
+
+```cpp
+// 如果 Docker 部署在同一机器
+static const QString HTTP_BASE_URL = "http://127.0.0.1:8080";
+static const QString WEBSOCKET_URL = "ws://127.0.0.1:4567/ws";
+
+// 如果 Docker 部署在远程服务器
+static const QString HTTP_BASE_URL = "http://your-server-ip:8080";
+static const QString WEBSOCKET_URL = "ws://your-server-ip:4567/ws";
+```
+
+### Docker 部署注意事项
+
+1. **数据库初始化**: Docker Compose 会自动执行 SQL 初始化脚本
+2. **数据持久化**: 数据库和 Redis 数据存储在 Docker 卷中
+3. **配置安全**: 不要将 `config.json` 和 `.env` 文件提交到版本控制
+4. **资源限制**: 可在 `docker-compose.yml` 中添加 `deploy.resources` 限制内存/CPU

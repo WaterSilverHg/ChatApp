@@ -88,28 +88,29 @@ public:
         auto targetUserId = m_idCache->getUserId(request->toUserUuid);
         ASYNC_THROW_IF(targetUserId > 0, "Target user does not exist or has been deactivated");
 
-        // 判断关系
-        auto status1Result = m_appClient->checkFriendshipStatus(currentUserId, targetUserId);
-        auto status2Result = m_appClient->checkFriendshipStatus(targetUserId, currentUserId);
+        // 判断关系 - 只检查发送方→接收方的关系
+        // block = 我拉黑了对方
+        // blocked = 对方拉黑了我
+        // accepted = 正常好友
+        auto statusResult = m_appClient->checkFriendshipStatus(currentUserId, targetUserId);
         #ifdef SQLCHECK
-        if (!status1Result->isSuccess()) {
-            OATPP_LOGD("MessageService", "Error: %s", status1Result->getErrorMessage()->c_str());
+        if (!statusResult->isSuccess()) {
+            OATPP_LOGD("MessageService", "Error: %s", statusResult->getErrorMessage()->c_str());
             throw std::runtime_error("Friendship does not exist");
         }
         #endif
-        if (!status1Result->hasMoreToFetch()) {
+        if (!statusResult->hasMoreToFetch()) {
             throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "Friendship does not exist");
         }
 
-        auto status1 = status1Result->fetch<oatpp::Vector<oatpp::Object<StatusDTO>>>()[0]->status;
-        if (status1 == "blocked") {
-            throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "User has been blocked, cannot send message");
+        auto status = statusResult->fetch<oatpp::Vector<oatpp::Object<StatusDTO>>>()[0]->status;
+        if (status == "block") {
+            throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "You have blocked this user, cannot send message");
         }
-        auto status2 = status2Result->fetch<oatpp::Vector<oatpp::Object<StatusDTO>>>()[0]->status;
-        if (status2 == "blocked") {
-            throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "You have been blocked by the user, cannot send message");
+        if (status == "blocked") {
+            throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "This user has blocked you, cannot send message");
         }
-        if (status1 != "accepted") {
+        if (status != "accepted") {
             throw oatpp::web::protocol::http::HttpError(Status::CODE_401, "You are not friends with this user, cannot send message");
         }
 

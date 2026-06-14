@@ -11,29 +11,28 @@ private:
     OATPP_COMPONENT(std::shared_ptr<oatpp::async::Executor>, m_executor, "ws-server-exec");
     oatpp::data::stream::BufferOutputStream m_messageBuffer;
     oatpp::String m_userUuid;
+    std::string m_connId;
     std::shared_ptr<SharedWebSocketResources> m_sharedResources;
-    std::atomic<std::chrono::steady_clock::time_point> m_lastPongTime;
-    std::atomic<bool> m_running;
-    std::thread m_heartbeatThread;
-    static constexpr auto HEARTBEAT_INTERVAL = std::chrono::seconds(10);
-    static constexpr auto PONG_TIMEOUT = std::chrono::seconds(12);
 
 public:
     LightweightAsyncWebSocketListener(const oatpp::String& userUuid,
         const std::shared_ptr<SharedWebSocketResources>& sharedResources)
         : m_userUuid(userUuid)
         , m_sharedResources(sharedResources)
-        , m_lastPongTime(std::chrono::steady_clock::now())
-        , m_running(true)
     {
+        m_connId = "conn_" + std::to_string(std::hash<std::thread::id>{}(std::this_thread::get_id())) + "_" + 
+                   std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+        
         if (m_userUuid) {
-            OATPP_LOGI("WebSocket", "User connected (lightweight): %s", m_userUuid->c_str());
+            OATPP_LOGI("WebSocket", "User connected (lightweight): %s, connId: %s", m_userUuid->c_str(), m_connId.c_str());
         }
-        m_lastPongTime = std::chrono::steady_clock::now();
     }
 
     ~LightweightAsyncWebSocketListener() {
-        stopHeartbeat();
+    }
+
+    void initHeartbeat(const std::shared_ptr<AsyncWebSocket>& socket) {
+        m_sharedResources->addHeartbeatRecord(m_connId, socket, m_userUuid->c_str());
     }
 
     CoroutineStarter onPing(const std::shared_ptr<AsyncWebSocket>& socket, const oatpp::String& message) override {
@@ -41,13 +40,14 @@ public:
     }
 
     CoroutineStarter onPong(const std::shared_ptr<AsyncWebSocket>& socket, const oatpp::String& message) override {
-        m_lastPongTime = std::chrono::steady_clock::now();
         OATPP_LOGD("WebSocket", "Received pong from user %s", m_userUuid->c_str());
+        m_sharedResources->updateActivityTime(m_connId);
         return nullptr;
     }
 
     CoroutineStarter onClose(const std::shared_ptr<AsyncWebSocket>& socket, v_uint16 code, const oatpp::String& message) override {
-        m_running = false;
+        m_sharedResources->removeHeartbeatRecord(m_connId);
+        
         if (m_userUuid) {
             bool shouldSetOffline = m_sharedResources->webSocket->decrementAndRemoveIfZero(m_userUuid);
 
@@ -79,6 +79,7 @@ public:
             oatpp::String wholeMessage = m_messageBuffer.toString();
             m_messageBuffer.setCurrentPosition(0);
             if (m_userUuid && wholeMessage) {
+                m_sharedResources->updateActivityTime(m_connId);
                 handleMessage(wholeMessage);
             }
         }
@@ -88,66 +89,7 @@ public:
         return nullptr;
     }
 
-    void startHeartbeatCheck(const std::shared_ptr<AsyncWebSocket>& socket) {
-        m_heartbeatThread = std::thread([this, socket]() {
-            while (m_running) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-
-                auto now = std::chrono::steady_clock::now();
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - m_lastPongTime.load()).count();
-
-                if (elapsed >= PONG_TIMEOUT.count()) {
-                    OATPP_LOGW("WebSocket", "Heartbeat timeout for user %s, closing connection", m_userUuid->c_str());
-                    if (m_running) {
-                        m_running = false;
-
-                        bool shouldSetOffline = m_sharedResources->webSocket->decrementAndRemoveIfZero(m_userUuid);
-
-                        if (shouldSetOffline) {
-                            try {
-                                auto statusRequest = oatpp::Object<UpdateStatusRequestDTO>::createShared();
-                                statusRequest->status = "offline";
-                                m_sharedResources->statusService->updateStatus(m_userUuid, statusRequest);
-                                OATPP_LOGI("WebSocket", "User %s status set to offline (heartbeat timeout)", m_userUuid->c_str());
-
-                                if (m_sharedResources->redis) {
-                                    m_sharedResources->redis->deleteSession(m_userUuid->c_str());
-                                    OATPP_LOGI("WebSocket", "Session deleted for user %s (heartbeat timeout)", m_userUuid->c_str());
-                                }
-                            } catch (const std::exception& e) {
-                                OATPP_LOGE("WebSocket", "Failed to set user %s status to offline: %s", m_userUuid->c_str(), e.what());
-                            }
-                        } else {
-                            OATPP_LOGI("WebSocket", "User %s has more connections, not setting offline (heartbeat timeout)", m_userUuid->c_str());
-                        }
-
-                        m_executor->execute<SendCloseCoroutine>(socket);
-                    }
-                    break;
-                }
-
-                if (elapsed >= HEARTBEAT_INTERVAL.count()) {
-                    OATPP_LOGD("WebSocket", "Sending heartbeat to user %s", m_userUuid->c_str());
-                    if (m_running) {
-                        m_executor->execute<SendPingCoroutine>(
-                            socket
-                        );
-                    }
-                }
-            }
-            });
-        m_heartbeatThread.detach();
-    }
-
 private:
-    
-
-    void stopHeartbeat() {
-        m_running = false;
-        if (m_heartbeatThread.joinable()) {
-            m_heartbeatThread.join();
-        }
-    }
 
     void handleMessage(const oatpp::String& message) {
         if (!message || message->empty()) {

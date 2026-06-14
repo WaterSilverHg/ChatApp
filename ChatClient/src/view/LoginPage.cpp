@@ -23,16 +23,12 @@ LoginPage::LoginPage(QWidget *parent)
 
 void LoginPage::connectSignals()
 {
-    connect(m_httpClient, &HttpApiClient::loginSuccess, this, &LoginPage::onLoginSuccess);
-    connect(m_httpClient, &HttpApiClient::errorOccurred, this, &LoginPage::onError);
     connect(m_wsClient, &WebSocketClient::connected, this, &LoginPage::onWebSocketConnected);
     connect(m_wsClient, &WebSocketClient::errorOccurred, this, &LoginPage::onWebSocketError);
 }
 
 void LoginPage::disconnectSignals()
 {
-    disconnect(m_httpClient, &HttpApiClient::loginSuccess, this, &LoginPage::onLoginSuccess);
-    disconnect(m_httpClient, &HttpApiClient::errorOccurred, this, &LoginPage::onError);
     disconnect(m_wsClient, &WebSocketClient::connected, this, &LoginPage::onWebSocketConnected);
     disconnect(m_wsClient, &WebSocketClient::errorOccurred, this, &LoginPage::onWebSocketError);
 }
@@ -104,36 +100,36 @@ void LoginPage::on_loginButton_clicked()
     ui.loginButton->setEnabled(false);
     ui.loginButton->setText("登录中...");
 
-    m_httpClient->login(email, password);
-}
+    m_httpClient->login(email, password,
+        [this](const QJsonDocument& doc) {
+            QJsonObject data = doc.object();
+            if (data.contains("content")) {
+                data = QJsonDocument::fromJson(data["content"].toString().toUtf8()).object();
+            }
+            QString token = data["token"].toString();
+            QJsonObject user = data["user"].toObject();
 
-void LoginPage::onLoginSuccess(const QJsonObject& data)
-{
-    QString token = data["token"].toString();
-    QJsonObject user = data["user"].toObject();
+            m_authToken = token;
+            m_userInfo = user;
 
-    m_authToken = token;
-    m_userInfo = user;
+            UserSession::instance()->setToken(token);
+            UserSession::instance()->setUserData(user);
 
-    UserSession::instance()->setToken(token);
-    UserSession::instance()->setUserData(user);
+            saveCredentials(ui.emailEdit->text().trimmed(), ui.passwordEdit->text());
 
-    saveCredentials(ui.emailEdit->text().trimmed(), ui.passwordEdit->text());
-
-    m_wsClient->connectWebSocket();
+            m_wsClient->connectWebSocket();
+        },
+        [this](const QString& errorMessage, int errorCode) {
+            ui.loginButton->setEnabled(true);
+            ui.loginButton->setText("登录");
+            QMessageBox::warning(this, "登录失败", errorMessage);
+        });
 }
 
 void LoginPage::onWebSocketConnected()
 {
     QString username = m_userInfo["username"].toString();
     emit loginSuccess(username, m_authToken, m_userInfo);
-}
-
-void LoginPage::onError(const QString& errorMessage, int errorCode)
-{
-    ui.loginButton->setEnabled(true);
-    ui.loginButton->setText("登录");
-    QMessageBox::warning(this, "登录失败", errorMessage);
 }
 
 void LoginPage::onWebSocketError(const QString& error)

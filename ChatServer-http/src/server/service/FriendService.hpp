@@ -491,7 +491,7 @@ public:
         // 只有被拉黑的关系才能取消拉黑
         if (friendshipStatusResult->hasMoreToFetch()) {
             auto friendshipStatus = friendshipStatusResult->fetch<oatpp::Vector<oatpp::Object<StatusDTO>>>()[0]->status;
-            if (friendshipStatus != "blocked") {
+            if (friendshipStatus != "block") {
                 OATPP_ASSERT_HTTP(false, Status::CODE_400, "只有被拉黑的关系才能取消拉黑");
             }
         } else {
