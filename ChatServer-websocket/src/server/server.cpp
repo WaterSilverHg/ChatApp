@@ -9,6 +9,7 @@
 //#include "controller/ConversationController.hpp"
 //#include "controller/UserStatusController.hpp"
 #include "controller/WebSocketController.hpp"
+#include "../redis/RedisPubSubManager.hpp"
 
 static void run() {
 
@@ -40,6 +41,10 @@ static void run() {
 	router->addController(swaggerController);
 #endif
 
+	// 启动 Redis Pub/Sub 订阅者
+	OATPP_COMPONENT(std::shared_ptr<RedisPubSubManager>, pubSubManager);
+	pubSubManager->start();
+	OATPP_LOGI("MyApp", "Redis Pub/Sub subscriber started");
 
 	OATPP_COMPONENT(std::shared_ptr<oatpp::network::ConnectionHandler>, httpConnectionHandler, "http");
 	//OATPP_COMPONENT(std::shared_ptr<oatpp::websocket::AsyncConnectionHandler>, httpConnectionHandler, "ws-server-handler");

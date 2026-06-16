@@ -77,8 +77,12 @@
 #include <QPixmap>
 
 // 全局常量
+// 连接到 Nginx 负载均衡器（开发环境）
 static const QString HTTP_BASE_URL = "http://127.0.0.1:8080";
-static const QString WEBSOCKET_URL = "ws://127.0.0.1:4567/ws";
+static const QString WEBSOCKET_URL = "ws://127.0.0.1:8080/ws";
+// 如果使用 HTTPS，取消注释以下行
+// static const QString HTTP_BASE_URL = "https://your-domain.com";
+// static const QString WEBSOCKET_URL = "wss://your-domain.com/ws";
 static const int MESSAGE_PAGE_SIZE = 50;
 
 // UI 样式常量（浅绿-白主题）

@@ -1,11 +1,23 @@
 #pragma once
 #include"../global.h"
+#include <functional>
+#include <memory>
 
 class AppRedis{
 	sw::redis::Redis* handle;
+	sw::redis::Subscriber* subscriber;
+	std::atomic<bool> subscriberRunning;
+	std::thread subscriberThread;
+	std::function<void(const std::string&, const std::string&)> messageCallback;
+	std::string redisUrl;
 public:
-	AppRedis() : handle(nullptr) {}
+	AppRedis() : handle(nullptr), subscriber(nullptr), subscriberRunning(false) {}
 	~AppRedis() {
+		stopSubscriber();
+		if (subscriber != nullptr) {
+			delete subscriber;
+			subscriber = nullptr;
+		}
 		if (handle != nullptr) {
 			delete handle;
 			handle = nullptr;
@@ -31,6 +43,7 @@ public:
 
 	bool initRedis(const char* url) {
 		try {
+			redisUrl = url;
 			handle = new sw::redis::Redis(url);
 			OATPP_LOGI("Redis", "Redis connection initialized successfully");
 			return true;
@@ -161,6 +174,93 @@ public:
 		} catch (const sw::redis::Error& e) {
 			std::cerr << "Error releasing dedup lock: " << e.what() << std::endl;
 			return false;
+		}
+	}
+
+	// ===== Pub/Sub 方法 =====
+
+	// 发布消息到指定频道
+	bool publish(const std::string& channel, const std::string& message) {
+		try {
+			handle->publish(channel, message);
+			return true;
+		} catch (const sw::redis::Error& e) {
+			OATPP_LOGE("Redis", "Failed to publish to channel %s: %s", channel.c_str(), e.what());
+			return false;
+		}
+	}
+
+	// 设置消息回调函数
+	void setMessageCallback(std::function<void(const std::string&, const std::string&)> callback) {
+		messageCallback = std::move(callback);
+	}
+
+	// 订阅指定频道
+	bool subscribe(const std::vector<std::string>& channels) {
+		try {
+			if (!subscriber) {
+				// 通过 Redis 实例的 subscriber() 方法创建
+				subscriber = new sw::redis::Subscriber(handle->subscriber());
+				
+				// 设置消息回调函数
+				subscriber->on_message([this](std::string channel, std::string msg) {
+					if (messageCallback) {
+						messageCallback(channel, msg);
+					}
+				});
+			}
+			
+			for (const auto& channel : channels) {
+				subscriber->subscribe(channel);
+				OATPP_LOGI("Redis", "Subscribed to channel: %s", channel.c_str());
+			}
+			return true;
+		} catch (const sw::redis::Error& e) {
+			OATPP_LOGE("Redis", "Failed to subscribe: %s", e.what());
+			return false;
+		}
+	}
+
+	// 启动订阅线程
+	void startSubscriber() {
+		if (subscriberRunning.load()) {
+			OATPP_LOGW("Redis", "Subscriber is already running");
+			return;
+		}
+		
+		if (!subscriber) {
+			OATPP_LOGE("Redis", "Subscriber not initialized, call subscribe() first");
+			return;
+		}
+
+		subscriberRunning.store(true);
+		subscriberThread = std::thread([this]() {
+			OATPP_LOGI("Redis", "Subscriber thread started");
+			try {
+				while (subscriberRunning.load()) {
+					subscriber->consume();
+				}
+			} catch (const sw::redis::Error& e) {
+				OATPP_LOGE("Redis", "Subscriber error: %s", e.what());
+			} catch (const std::exception& e) {
+				OATPP_LOGE("Redis", "Subscriber exception: %s", e.what());
+			}
+			OATPP_LOGI("Redis", "Subscriber thread stopped");
+		});
+	}
+
+	// 停止订阅线程
+	void stopSubscriber() {
+		subscriberRunning.store(false);
+		if (subscriber) {
+			try {
+				subscriber->unsubscribe();
+			} catch (const sw::redis::Error& e) {
+				OATPP_LOGW("Redis", "Error unsubscribing: %s", e.what());
+			}
+		}
+		if (subscriberThread.joinable()) {
+			subscriberThread.join();
 		}
 	}
 

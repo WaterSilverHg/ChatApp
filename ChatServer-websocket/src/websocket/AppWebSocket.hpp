@@ -4,11 +4,21 @@
 
 #include"../server/coroutine/Coroutines.hpp"
 
+// 前向声明，解决循环依赖
+class RedisPubSubManager;
+
 class AppWebSocket {
 private:
     OATPP_COMPONENT(std::shared_ptr<oatpp::async::Executor>, m_executor, "ws-server-exec");
+    std::weak_ptr<RedisPubSubManager> m_pubSubManager;
 public:
     using AsyncWebSocket = oatpp::websocket::AsyncWebSocket;
+    
+    void setPubSubManager(const std::shared_ptr<RedisPubSubManager>& pubSubManager);
+    
+    bool sendMessageToUser(const oatpp::String& userUuid, const oatpp::String& message);
+    
+    void batchPushMessage(const std::vector<oatpp::String>& targetUuids, const oatpp::String& message);
 
     struct ConnectionInfo {
         std::shared_ptr<AsyncWebSocket> socket;
@@ -77,24 +87,6 @@ public:
         return m_connections.find(userUuid) != m_connections.end();
     }
 
-    bool sendMessageToUser(const oatpp::String& userUuid, const oatpp::String& message) {
-        std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
-        auto it = m_connections.find(userUuid);
-        if (it != m_connections.end() && it->second.socket) {
-            try {
-                m_executor->execute<SendOneMessageCoroutine>(
-                    it->second.socket, message
-                );
-                return true;
-            } catch (const std::exception& e) {
-                OATPP_LOGE("AppWebSocket", "Failed to send message to user %s: %s", userUuid->c_str(), e.what());
-                return false;
-            }
-        }
-        OATPP_LOGW("AppWebSocket", "User not online: %s", userUuid->c_str());
-        return false;
-    }
-
     void sendMessageToUsers(const std::vector<oatpp::String>& userUuids, const oatpp::String& message) {
         std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
         for (const auto& userUuid : userUuids) {
@@ -154,19 +146,6 @@ public:
             snapshot[pair.first] = pair.second.socket;
         }
         return snapshot;
-    }
-
-    void batchPushMessage(
-        const std::vector<oatpp::String>& targetUuids,
-        const oatpp::String& message)
-    {
-        std::lock_guard<oatpp::concurrency::SpinLock> lock(m_lock);
-        for (auto& uuid : targetUuids) {
-            auto it = m_connections.find(uuid);
-            if (it != m_connections.end() && it->second.socket) {
-                m_executor->execute<SendOneMessageCoroutine>(it->second.socket, message);
-            }
-        }
     }
 
 private:

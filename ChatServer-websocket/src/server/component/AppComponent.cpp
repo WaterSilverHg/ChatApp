@@ -7,6 +7,7 @@
 #include "../handler/WebSocketInstanceListener.hpp"
 #include "../postgresql/AppPostgresql.hpp"
 #include "../../jwt/Appjwt.h"
+#include "../../redis/RedisPubSubManager.hpp"
 
 /**
  *  Class which creates and holds Application components and registers components in oatpp::base::Environment
@@ -105,6 +106,20 @@ public:
 
     OATPP_CREATE_COMPONENT(std::shared_ptr<AppWebSocket>, websocket)([] {
         return std::make_shared<AppWebSocket>();
+        }());
+
+    /**
+     *  Create RedisPubSubManager component for distributed messaging
+     */
+    OATPP_CREATE_COMPONENT(std::shared_ptr<RedisPubSubManager>, redisPubSubManager)([] {
+        OATPP_COMPONENT(std::shared_ptr<AppRedis>, redis);
+        OATPP_COMPONENT(std::shared_ptr<AppWebSocket>, webSocket);
+        OATPP_COMPONENT(std::shared_ptr<oatpp::data::mapping::ObjectMapper>, objectMapper);
+        
+        auto pubSubManager = std::make_shared<RedisPubSubManager>(redis, webSocket, objectMapper);
+        webSocket->setPubSubManager(pubSubManager);
+        
+        return pubSubManager;
         }());
 
     /**
