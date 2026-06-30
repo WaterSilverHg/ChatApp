@@ -13,19 +13,12 @@ ENV TZ=Asia/Shanghai
 # 构建时通过 --build-arg VCPKG_HOST_PATH=<宿主机路径> 指定
 ARG VCPKG_HOST_PATH=none
 
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    git \
-    pkg-config \
-    libssl-dev \
-    libpq-dev \
-    libhiredis-dev \
-    curl \
-    wget \
-    unzip \
-    zip \
-    ninja-build \
+RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    apt-get update --allow-insecure-repositories || true && \
+    apt-get install -y --allow-unauthenticated \
+        build-essential cmake git pkg-config libssl-dev libpq-dev \
+        libhiredis-dev curl wget unzip zip ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
@@ -81,10 +74,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
 # 安装运行时依赖
-RUN apt-get update && apt-get install -y \
-    libssl3 \
-    libpq5 \
-    libhiredis0.14 \
+RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    apt-get update --allow-insecure-repositories || true && \
+    apt-get install -y --allow-unauthenticated \
+        libssl3 libpq5 libhiredis0.14 \
     && rm -rf /var/lib/apt/lists/*
 
 # 创建应用目录

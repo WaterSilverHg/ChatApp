@@ -7,9 +7,12 @@
     { "name": "oatpp-websocket", "version>=": "1.3.0" },
     { "name": "oatpp-postgresql", "version>=": "1.3.0" },
     { "name": "oatpp-swagger", "version>=": "1.3.1" },
-    "poco",
+    {
+    "name": "poco",
+    "features": ["json", "xml", "util", "net", "crypto", "netssl"]
+    },
     "openssl",
-    { "name": "redis-plus-plus", "version>=": "1.3.11" },
+    { "name": "redis-plus-plus", "version>=": "1.3.12" },
     { "name": "nlohmann-json", "version>=": "3.11.2" },
     { "name": "mailio", "version>=": "0.25.3" },
     { "name": "jwt-cpp", "version>=": "0.7.0" }
@@ -19,7 +22,7 @@
     { "name": "oatpp-websocket", "version": "1.3.0" },
     { "name": "oatpp-postgresql", "version": "1.3.0" },
     { "name": "oatpp-swagger", "version": "1.3.1" },
-    { "name": "redis-plus-plus", "version": "1.3.11" },
+    { "name": "redis-plus-plus", "version": "1.3.12" },
     { "name": "nlohmann-json", "version": "3.11.2" },
     { "name": "mailio", "version": "0.25.3" },
     { "name": "jwt-cpp", "version": "0.7.0" }

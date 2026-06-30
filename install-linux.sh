@@ -6,6 +6,9 @@
 
 set -e
 
+# 获取项目根目录（脚本所在目录）
+PROJECT_ROOT=$(dirname "$(realpath "$0")")
+
 echo "========================================"
 echo "ChatApp Linux 环境安装脚本"
 echo "========================================"
@@ -97,11 +100,22 @@ echo "✅ vcpkg 安装完成"
 echo ""
 echo "[3/4] 通过 vcpkg 安装所有依赖..."
 
-# 使用项目的 vcpkg.json（manifest 模式）安装依赖
-# vcpkg 会自动读取项目根目录的 vcpkg.json 并安装所需依赖
+# 确认 vcpkg.json 存在
+if [ ! -f "$PROJECT_ROOT/vcpkg.json" ]; then
+    echo "❌ 错误: 未找到 vcpkg.json 文件"
+    echo "   期望路径: $PROJECT_ROOT/vcpkg.json"
+    exit 1
+fi
+
+echo "找到 manifest 文件: $PROJECT_ROOT/vcpkg.json"
+
+# Manifest mode: 直接在项目根目录运行 vcpkg install
+# vcpkg 会自动检测当前目录的 vcpkg.json 文件
 cd "$PROJECT_ROOT"
 
-sudo "$VCPKG_ROOT/vcpkg" install --triplet x64-linux --clean-after-build
+# 使用 vcpkg install，它会在当前目录自动检测 vcpkg.json
+# 注意：需要使用 --classic 或确保 vcpkg 不去其他目录查找
+"$VCPKG_ROOT/vcpkg" install
 
 echo "✅ vcpkg 依赖安装完成"
 
@@ -110,7 +124,6 @@ echo ""
 echo "[4/4] 安装腾讯云 COS SDK..."
 
 COS_SDK_VERSION="latest"
-PROJECT_ROOT=$(dirname "$(realpath "$0")")
 COS_LIB_DIR="${PROJECT_ROOT}/ChatServer-http/lib/linux-x64"
 COS_INCLUDE_DIR="${PROJECT_ROOT}/ChatServer-http/include/cos-cpp"
 
