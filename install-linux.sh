@@ -2,6 +2,7 @@
 
 # ChatApp Linux 环境安装脚本
 # 支持 Ubuntu/Debian 系统
+# 仅使用 vcpkg 安装依赖，避免重复编译
 
 set -e
 
@@ -22,7 +23,7 @@ echo "检测到操作系统: $OS"
 
 # ==================== 1. 安装系统依赖 ====================
 echo ""
-echo "[1/6] 安装系统依赖..."
+echo "[1/4] 安装系统依赖..."
 
 if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
     sudo apt update
@@ -75,7 +76,7 @@ echo "✅ 系统依赖安装完成"
 
 # ==================== 2. 安装 vcpkg ====================
 echo ""
-echo "[2/6] 安装 vcpkg..."
+echo "[2/4] 安装 vcpkg..."
 
 VCPKG_ROOT="${VCPKG_ROOT:-/opt/vcpkg}"
 
@@ -85,116 +86,28 @@ if [ ! -d "$VCPKG_ROOT" ]; then
     cd "$VCPKG_ROOT"
     sudo ./bootstrap-vcpkg.sh -disableMetrics
 else
-    echo "vcpkg 已存在于 $VCPKG_ROOT"
+    echo "vcpkg 已存在于 $VCPKG_ROOT，更新..."
+    cd "$VCPKG_ROOT"
+    sudo git pull
 fi
 
 echo "✅ vcpkg 安装完成"
 
-# ==================== 3. 安装 vcpkg 依赖 ====================
+# ==================== 3. 通过 vcpkg 安装所有依赖 ====================
 echo ""
-echo "[3/6] 安装 vcpkg 依赖..."
+echo "[3/4] 通过 vcpkg 安装所有依赖..."
 
-cd "$VCPKG_ROOT"
+# 使用项目的 vcpkg.json（manifest 模式）安装依赖
+# vcpkg 会自动读取项目根目录的 vcpkg.json 并安装所需依赖
+cd "$PROJECT_ROOT"
 
-# 安装 oatpp 相关库
-sudo ./vcpkg install oatpp:x64-linux
-sudo ./vcpkg install oatpp-websocket:x64-linux
-sudo ./vcpkg install oatpp-postgresql:x64-linux
-sudo ./vcpkg install oatpp-swagger:x64-linux
-sudo ./vcpkg install oatpp-sqlite:x64-linux
-
-# 安装其他依赖
-sudo ./vcpkg install poco:x64-linux
-sudo ./vcpkg install openssl:x64-linux
-sudo ./vcpkg install redis-plus-plus:x64-linux
-sudo ./vcpkg install nlohmann-json:x64-linux
-sudo ./vcpkg install mailio:x64-linux
-sudo ./vcpkg install jwt-cpp:x64-linux
+sudo "$VCPKG_ROOT/vcpkg" install --triplet x64-linux --clean-after-build
 
 echo "✅ vcpkg 依赖安装完成"
 
-# ==================== 4. 安装 oatpp (手动编译方式，可选) ====================
+# ==================== 4. 安装腾讯云 COS SDK ====================
 echo ""
-echo "[4/6] 安装 oatpp (手动编译方式)..."
-
-OATPP_VERSION="1.3.0"
-OATPP_INSTALL_DIR="/usr/local"
-
-# 检查是否已安装
-if [ ! -f "/usr/local/lib64/oatpp-${OATPP_VERSION}/liboatpp.so" ]; then
-    echo "手动编译安装 oatpp ${OATPP_VERSION}..."
-    
-    # oatpp 核心
-    cd /tmp
-    git clone --depth 1 --branch ${OATPP_VERSION} https://github.com/oatpp/oatpp.git
-    cd oatpp
-    mkdir build && cd build
-    cmake -DCMAKE_INSTALL_PREFIX=${OATPP_INSTALL_DIR} -DCMAKE_BUILD_TYPE=Release ..
-    make -j$(nproc)
-    sudo make install
-    cd /tmp && rm -rf oatpp
-    
-    # oatpp-websocket
-    cd /tmp
-    git clone --depth 1 --branch ${OATPP_VERSION} https://github.com/oatpp/oatpp-websocket.git
-    cd oatpp-websocket
-    mkdir build && cd build
-    cmake -DCMAKE_INSTALL_PREFIX=${OATPP_INSTALL_DIR} -DCMAKE_BUILD_TYPE=Release ..
-    make -j$(nproc)
-    sudo make install
-    cd /tmp && rm -rf oatpp-websocket
-    
-    # oatpp-swagger
-    cd /tmp
-    git clone --depth 1 --branch ${OATPP_VERSION} https://github.com/oatpp/oatpp-swagger.git
-    cd oatpp-swagger
-    mkdir build && cd build
-    cmake -DCMAKE_INSTALL_PREFIX=${OATPP_INSTALL_DIR} -DCMAKE_BUILD_TYPE=Release ..
-    make -j$(nproc)
-    sudo make install
-    cd /tmp && rm -rf oatpp-swagger
-    
-    # oatpp-postgresql
-    cd /tmp
-    git clone --depth 1 --branch ${OATPP_VERSION} https://github.com/oatpp/oatpp-postgresql.git
-    cd oatpp-postgresql
-    mkdir build && cd build
-    cmake -DCMAKE_INSTALL_PREFIX=${OATPP_INSTALL_DIR} -DCMAKE_BUILD_TYPE=Release ..
-    make -j$(nproc)
-    sudo make install
-    cd /tmp && rm -rf oatpp-postgresql
-    
-    echo "✅ oatpp 手动编译安装完成"
-else
-    echo "oatpp 已安装，跳过手动编译"
-fi
-
-# ==================== 5. 安装 redis++ (如果 hiredis 已安装但 redis++ 未安装) ====================
-echo ""
-echo "[5/6] 安装 redis++..."
-
-REDIS_PLUS_PLUS_VERSION="1.3.11"
-
-if [ ! -f "/usr/local/lib/libredis++.so" ]; then
-    echo "手动编译安装 redis++ ${REDIS_PLUS_PLUS_VERSION}..."
-    
-    cd /tmp
-    git clone --depth 1 --branch ${REDIS_PLUS_PLUS_VERSION} https://github.com/sewenew/redis-plus-plus.git
-    cd redis-plus-plus
-    mkdir build && cd build
-    cmake -DCMAKE_BUILD_TYPE=Release ..
-    make -j$(nproc)
-    sudo make install
-    cd /tmp && rm -rf redis-plus-plus
-    
-    echo "✅ redis++ 安装完成"
-else
-    echo "redis++ 已安装，跳过"
-fi
-
-# ==================== 6. 安装腾讯云 COS SDK ====================
-echo ""
-echo "[6/6] 安装腾讯云 COS SDK..."
+echo "[4/4] 安装腾讯云 COS SDK..."
 
 COS_SDK_VERSION="latest"
 PROJECT_ROOT=$(dirname "$(realpath "$0")")
@@ -238,6 +151,9 @@ echo ""
 echo "========================================"
 echo "安装完成！"
 echo "========================================"
+echo ""
+echo "所有依赖已通过 vcpkg 安装到:"
+echo "  ${VCPKG_ROOT}/installed/x64-linux/"
 echo ""
 echo "建议设置以下环境变量（添加到 ~/.bashrc）："
 echo ""
