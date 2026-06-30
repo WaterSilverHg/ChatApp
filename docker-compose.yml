@@ -53,7 +53,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./ChatServer-http/config.json:/app/ChatServer-http/build/bin/config.json:ro
+      - ./ChatServer-http/config.json:/app/bin/config.json:ro
     environment:
       - TZ=Asia/Shanghai
 
@@ -72,7 +72,7 @@ services:
     ports:
       - "4567:4567"
     volumes:
-      - ./ChatServer-websocket/config.json:/app/ChatServer-websocket/build/bin/config.json:ro
+      - ./ChatServer-websocket/config.json:/app/bin/config.json:ro
     environment:
       - TZ=Asia/Shanghai
 

@@ -1,6 +1,6 @@
 # ChatApp
 
-一个基于 Oat++ 和 Qt6 的全栈实时聊天应用，支持私聊、群聊、好友管理、文件上传等功能。
+一个基于 Oat++ 和 Qt6 的全栈实时聊天应用，**支持分布式部署**，支持私聊、群聊、好友管理、文件上传等功能。
 
 ## 项目架构
 
@@ -8,56 +8,82 @@
 ChatApp/
 ├── ChatClient/              # Qt6 桌面客户端 (C++17)
 ├── ChatServer-http/          # REST API 服务器 (Oat++, 端口 8080)
-├── ChatServer-websocket/     # WebSocket 实时服务器 (Oat++, 端口 4567)
-└── ChatServer-sql/           # 数据库初始化脚本 (PostgreSQL)
+├── ChatServer-websocket/     # WebSocket 实时服务器 (Oat++)
+├── ChatServer-sql/           # 数据库初始化脚本 (PostgreSQL)
+├── nginx-chatapp.conf        # Nginx 负载均衡配置
+└── start-distributed.sh      # 分布式启动脚本
 ```
 
+### 分布式架构图
+
 ```
-                        ┌─────────────────────┐
-                        │   ChatClient (Qt6)   │
-                        │   桌面 GUI 客户端      │
-                        └──────┬──────┬────────┘
-                               │      │
-              HTTP REST        │      │  WebSocket 实时
-          http://127.0.0.1:8080│      │ ws://127.0.0.1:4567/ws
-                               │      │
-        ┌──────────────────────v──┐ ┌─v──────────────────────────┐
-        │  ChatServer-http (Oat++)│ │ ChatServer-websocket (Oat++) │
-        │  - 登录/注册             │ │ - 实时消息推送               │
-        │  - 历史消息分页          │ │ - 好友/群组操作              │
-        │  - 文件上传              │ │ - 在线状态管理               │
-        │  - 用户搜索              │ │ - 心跳检测                   │
-        └──────────┬──────────────┘ └─┬────────────────────────────┘
-                   │                  │
-                   └──────┬───────────┘
-                          │
-          ┌───────────────v────────────────┐
-          │         PostgreSQL             │
-          │  数据库: chatroom               │
-          └───────────────┬────────────────┘
-                          │
-          ┌───────────────v────────────────┐
-          │     Redis + Tencent COS        │
-          │  Session / 验证码  │ 文件/头像  │
-          └────────────────────────────────┘
+                        ┌─────────────────────────────────────────┐
+                        │           客户端集群                      │
+                        │  UserA(IP1)  UserB(IP2)  UserC(IP3)    │
+                        └──────────────┬──────────────────────────┘
+                                       │
+                                       ▼
+                        ┌─────────────────────────────────────────┐
+                        │              Nginx                       │  ← 负载均衡入口
+                        │         (ip_hash 分配)                   │
+                        └──────────────┬──────────────────────────┘
+                                       │
+            ┌──────────────────────────┼──────────────────────────┐
+            ▼                          ▼                          ▼
+    ┌───────────────┐          ┌───────────────┐          ┌───────────────┐
+    │ WS Server 1   │          │ WS Server 2   │          │     Redis     │
+    │ 端口: 4567    │          │ 端口: 4568    │          │  Pub/Sub      │
+    │ 用户: A,C     │          │ 用户: B,D     │          │               │
+    └───────┬───────┘          └───────┬───────┘          └───────┬───────┘
+            │                          │                          │
+            └──────────────────────────┴──────────────────────────┘
+                      跨服务器消息同步 (Redis Pub/Sub)
+```
+
+### 分布式消息流程
+
+```
+用户A (Server 1) 发送消息给用户B (Server 2)
+
+UserA ──> Server 1 ──> 本地查找 UserB
+                            │
+                            │ B 不在本地
+                            ▼
+                      发布到 Redis
+                      chatapp:private_message
+                      {"serverId": "server_1", "targetUserUuid": "B", "payload": "..."}
+                            │
+                            ▼
+                      Redis Pub/Sub
+                            │
+                            │ 所有服务器都订阅了这个频道
+                            ▼
+              Server 1 (忽略自己发送的消息)    Server 2 (收到消息)
+                                                  │
+                                                  ▼
+                                            查找本地用户 B
+                                                  │
+                                                  ▼
+                                            B 在线 ──> 发送消息给 B
 ```
 
 ## 技术栈
 
-| 组件 | 技术 |
-|------|------|
-| HTTP 框架 | Oat++ 1.3.0 |
-| WebSocket | oatpp-websocket |
-| 数据库 | PostgreSQL (pgcrypto + uuid-ossp) |
-| ORM | oatpp-postgresql |
-| 缓存 | Redis (redis++) |
-| 认证 | JWT (jwt-cpp, HS256) + Redis Session |
-| 密码加密 | bcrypt |
-| 邮件 | mailio (SMTP) |
-| 文件存储 | 腾讯云 COS SDK |
-| JSON 解析 | picojson / oatpp parser-json |
-| 客户端 | Qt 6.8 + QWebSocket |
-| 构建 | CMake (服务端) / qmake (客户端) |
+| 组件 | 技术 | 说明 |
+|------|------|------|
+| HTTP 框架 | Oat++ 1.3.0 | 高性能 Web 框架 |
+| WebSocket | oatpp-websocket | 实时消息推送 |
+| 数据库 | PostgreSQL (pgcrypto + uuid-ossp) | 主数据库 |
+| ORM | oatpp-postgresql | 数据库访问 |
+| 缓存 / 分布式协调 | Redis (redis++) | Session、Pub/Sub 跨服务器通信 |
+| 认证 | JWT (jwt-cpp, HS256) + Redis Session | 安全认证 |
+| 密码加密 | bcrypt | 用户密码加密 |
+| 邮件 | mailio (SMTP) | 验证码发送 |
+| 文件存储 | 腾讯云 COS SDK | 头像、文件存储 |
+| JSON 解析 | picojson / oatpp parser-json | 数据序列化 |
+| 客户端 | Qt 6.8 + QWebSocket | 桌面客户端 |
+| 负载均衡 | Nginx | 分布式入口 |
+| 构建 | CMake (服务端) / qmake (客户端) | 项目构建 |
 
 ## 功能列表
 
@@ -83,7 +109,7 @@ ChatApp/
 
 ### 消息系统
 - 私聊消息 (在线实时推送 + 离线未读计数)
-- 群聊消息 (全员推送)
+- 群聊消息 (全员推送，跨服务器支持)
 - 消息撤回
 - 历史消息分页加载 (可分页 / 游标查询)
 - 会话列表 (未读计数、最后消息)
@@ -129,7 +155,7 @@ ChatApp/
 | GET | `/api/conversations` | 会话列表 | 是 |
 | PUT | `/api/users/status` | 更新在线状态 | 是 |
 
-### WebSocket 消息协议 (端口 4567)
+### WebSocket 消息协议 (通过 Nginx 访问)
 
 **请求 (客户端→服务端)**：
 
@@ -168,6 +194,16 @@ ChatApp/
 
 WebSocket 消息使用 JSON 格式，通过 `"type"` 字段路由到对应处理器。
 
+## Redis Pub/Sub 频道设计
+
+| 频道名 | 用途 | DTO |
+|--------|------|-----|
+| `chatapp:private_message` | 私聊消息跨服务器转发 | DistributedMessageDTO |
+| `chatapp:group_message` | 群聊消息跨服务器转发 | DistributedGroupMessageDTO |
+| `chatapp:user_status` | 用户状态同步 | DistributedStatusDTO |
+| `chatapp:friend_request` | 好友请求同步 | DistributedFriendRequestDTO |
+| `chatapp:group_event` | 群组事件同步 | DistributedGroupEventDTO |
+
 ## 数据库表结构
 
 | 表名 | 说明 | 关键字段 |
@@ -190,9 +226,10 @@ WebSocket 消息使用 JSON 格式，通过 `"type"` 字段路由到对应处理
 ### 前置依赖
 
 - **Windows**: Visual Studio 2022, vcpkg, Qt 6.8
-- **Linux**: GCC/Clang (C++17), CMake 3.16+, Qt 6.x (客户端)
+- **Linux**: GCC/Clang (C++17), CMake 3.16+, Qt 6.x (客户端), Nginx
 
 **服务端依赖 (通过 vcpkg)**：
+
 ```bash
 vcpkg install oatpp:x64-windows \
     oatpp-websocket:x64-windows \
@@ -200,8 +237,10 @@ vcpkg install oatpp:x64-windows \
     oatpp-swagger:x64-windows \
     poco:x64-windows \
     openssl:x64-windows \
-    redis++:x64-windows \
-    mailio:x64-windows
+    redis-plus-plus:x64-windows \
+    nlohmann-json:x64-windows \
+    mailio:x64-windows \
+    jwt-cpp:x64-windows
 ```
 
 **外部库 (项目内 `lib/` 目录)**：
@@ -253,26 +292,6 @@ redis-server
 }
 ```
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `Pagination` | number | 默认分页大小 |
-| `server_host` | string | 监听地址, `0.0.0.0` 表示所有网卡 |
-| `server_port` | number | HTTP 监听端口 |
-| `postgresql_connection_string` | string | PostgreSQL 连接字符串 (libpq 格式) |
-| `redis_url` | string | Redis 连接 URL (`tcp://host:port`) |
-| `jwt_secret` | string | JWT HS256 签名密钥 (生产环境请更换) |
-| `jwt_issuer` | string | JWT 签发者标识 |
-| `smtp_host` | string | SMTP 服务器地址 (QQ邮箱: `smtp.qq.com`) |
-| `smtp_port` | number | SMTP 端口 (QQ邮箱 SSL: `465`) |
-| `sender_name` | string | 发件人显示名称 |
-| `sender_email` | string | 发件人邮箱地址 |
-| `sender_password` | string | SMTP 授权码 (非邮箱登录密码) |
-| `cos_app_id` | string | 腾讯云 COS 应用 ID |
-| `cos_secret_id` | string | 腾讯云 API SecretId |
-| `cos_secret_key` | string | 腾讯云 API SecretKey |
-| `cos_region` | string | COS 存储桶地域 (如 `ap-guangzhou`) |
-| `cos_bucket_name` | string | COS 存储桶名称 |
-
 #### WebSocket 服务器配置 (`ChatServer-websocket/config.json`)
 
 ```json
@@ -292,7 +311,7 @@ redis-server
 }
 ```
 
-> **注意**: 两个服务器的 `jwt_secret` 必须一致，否则 WebSocket 认证会失败。
+> **注意**: 所有服务器的 `jwt_secret` 必须一致！
 
 ### 4. 编译与运行
 
@@ -320,70 +339,66 @@ qmake ChatClient.pro
 # 或在 Qt Creator 中打开 ChatClient.pro 直接编译运行
 ```
 
-### 5. 启动顺序
+## 分布式部署
+
+### 1. Nginx 负载均衡配置
+
+使用项目提供的 `nginx-chatapp.conf` 配置文件：
 
 ```bash
-# 1. 启动 PostgreSQL
-# 2. 启动 Redis
-redis-server
+# 复制配置文件到 Nginx 目录
+sudo cp nginx-chatapp.conf /etc/nginx/sites-available/chatapp
+sudo ln -s /etc/nginx/sites-available/chatapp /etc/nginx/sites-enabled/
 
-# 3. 启动 HTTP 服务器
-cd ChatServer-http/build/bin
-./ChatServer.exe
-
-# 4. 启动 WebSocket 服务器
-cd ChatServer-websocket/build/bin
-./ChatServer.exe
-
-# 5. 启动客户端
-cd ChatClient
-./ChatClient.exe
+# 检查配置并重启 Nginx
+sudo nginx -t
+sudo systemctl restart nginx
 ```
 
-### 6. 客户端配置
+### 2. 启动多个 WebSocket 服务器
+
+修改 `nginx-chatapp.conf` 中的上游服务器配置：
+
+```nginx
+upstream websocket_servers {
+    ip_hash;  # 基于客户端 IP 哈希分配
+    server 127.0.0.1:4567;  # Server 1
+    server 127.0.0.1:4568;  # Server 2
+    # server 192.168.1.100:4567;  # 分布式部署时使用实际 IP
+}
+```
+
+### 3. 使用启动脚本
+
+```bash
+chmod +x start-distributed.sh
+./start-distributed.sh
+```
+
+该脚本会自动启动：
+- 2 个 HTTP 服务器实例
+- 2 个 WebSocket 服务器实例
+- Nginx 负载均衡器
+
+### 4. 客户端配置
 
 客户端连接地址在 [ChatClient/src/global.h](ChatClient/src/global.h) 中定义：
 
 ```cpp
+// 开发环境（连接到 Nginx）
 static const QString HTTP_BASE_URL = "http://127.0.0.1:8080";
-static const QString WEBSOCKET_URL = "ws://127.0.0.1:4567/ws";
-static const int MESSAGE_PAGE_SIZE = 50;
+static const QString WEBSOCKET_URL = "ws://127.0.0.1:8080/ws";
+
+// 生产环境（使用 HTTPS/WSS）
+// static const QString HTTP_BASE_URL = "https://your-domain.com";
+// static const QString WEBSOCKET_URL = "wss://your-domain.com/ws";
 ```
 
 ## 生产部署建议
 
 ### TLS 加密
 
-建议通过 nginx 反向代理添加 TLS：
-
-```nginx
-# HTTP API
-server {
-    listen 443 ssl;
-    server_name api.example.com;
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-    }
-}
-
-# WebSocket
-server {
-    listen 443 ssl;
-    server_name ws.example.com;
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location /ws {
-        proxy_pass http://127.0.0.1:4567;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-```
+建议通过 Nginx 反向代理添加 TLS（已在 `nginx-chatapp.conf` 中配置）。
 
 ### 配置安全性
 
@@ -430,8 +445,12 @@ ChatServer-http/src/
 ```
 ChatServer-websocket/src/
 ├── (同上结构)
+├── redis/
+│   ├── AppRedis.hpp             # Redis 封装
+│   └── RedisPubSubManager.hpp   # Redis Pub/Sub 分布式消息管理
 ├── websocket/
-│   └── AppWebSocket.hpp         # WebSocket 连接管理器
+│   ├── AppWebSocket.hpp         # WebSocket 连接管理器
+│   └── AppWebSocket.cpp         # WebSocket 方法实现（避免循环依赖）
 └── server/
     ├── handler/
     │   ├── SharedWebSocketResources.hpp  # 消息分发中心
@@ -447,9 +466,10 @@ ChatServer-websocket/src/
 2. 服务端 → 验证密码 → 创建 JWT(payload: userUuid + sessionId) → Redis 存储 session
 3. 客户端 → 保存 token, 建立 WebSocket 连接
 4. 客户端 → GET /ws + Header: Authorization: Bearer <token>
-5. AppAuthInterceptor → 验证 JWT → 校验 Redis session → 提取 userUuid → 传递给 WebSocket
-6. WebSocket 连接建立 → 用户状态设为 online
-7. WebSocket 断开 → Redis session 删除 → 用户状态设为 offline
+5. Nginx → 基于 IP 哈希路由到特定 WebSocket 服务器
+6. AppAuthInterceptor → 验证 JWT → 校验 Redis session → 提取 userUuid
+7. WebSocket 连接建立 → 用户状态设为 online → 订阅 Redis 频道
+8. WebSocket 断开 → Redis session 删除 → 用户状态设为 offline
 ```
 
 JWT 过期时间: 3 天 (`EXPIRESIN = 3600 * 24 * 3`, 在 [global.h](ChatServer-http/src/global.h) 中定义)
@@ -462,15 +482,15 @@ JWT 过期时间: 3 天 (`EXPIRESIN = 3600 * 24 * 3`, 在 [global.h](ChatServer-
 
 ### 快速启动 (Docker Compose)
 
-项目提供了完整的 Docker 配置，可一键部署所有服务端组件。
+项目提供了完整的 Docker 配置，采用**三阶段构建**（依赖安装 → 编译 → 轻量运行时镜像），可一键部署所有服务端组件。
 
 #### 1. 准备配置文件
 
 ```bash
-# 复制环境变量模板
+# 复制环境变量模板（仅用于 PostgreSQL 密码）
 cp .env.example .env
 
-# 编辑 .env 文件，填写实际配置
+# 编辑 .env 文件，设置数据库密码
 vim .env
 
 # 创建 HTTP 服务器配置
@@ -515,7 +535,10 @@ cat > ChatServer-websocket/config.json << EOF
 EOF
 ```
 
-> **重要**: 两个服务器的 `jwt_secret` 必须一致！
+> **重要**:
+> - 所有服务器的 `jwt_secret` 必须一致！
+> - `.env` 文件**仅用于 PostgreSQL 容器密码**，服务器运行时配置通过 `config.json` 设置
+> - `config.json` 会通过 Docker 卷挂载到容器内部
 
 #### 2. 启动服务
 
@@ -531,6 +554,21 @@ docker-compose logs -f http-server
 docker-compose logs -f websocket-server
 ```
 
+**首次构建说明**：
+- 首次构建会在容器内克隆 vcpkg 并安装所有依赖，**大约需要 15-30 分钟**
+- 后续构建会利用 Docker 缓存层，仅重新编译代码，速度会大幅提升
+
+**使用宿主机 vcpkg 加速构建**（可选）：
+```bash
+# Windows 系统（假设 vcpkg 安装在 C:\cppsoft\vcpkg）
+docker build --build-arg VCPKG_HOST_PATH=/mnt/c/cppsoft/vcpkg -f ChatServer-http/Dockerfile -t chatapp-http .
+
+# Linux 系统
+docker build --build-arg VCPKG_HOST_PATH=/usr/local/vcpkg -f ChatServer-http/Dockerfile -t chatapp-http .
+```
+
+通过 `VCPKG_HOST_PATH` 参数可以复用宿主机的 vcpkg 安装，大幅缩短构建时间（从 15-30 分钟降至 5-10 分钟）。
+
 #### 3. 服务说明
 
 Docker Compose 会启动以下服务：
@@ -538,7 +576,7 @@ Docker Compose 会启动以下服务：
 | 服务 | 容器名 | 端口 | 说明 |
 |------|--------|------|------|
 | `postgres` | chatapp-postgres | 5432 | PostgreSQL 数据库 |
-| `redis` | chatapp-redis | 6379 | Redis 缓存 |
+| `redis` | chatapp-redis | 6379 | Redis 缓存和 Pub/Sub |
 | `http-server` | chatapp-http | 8080 | REST API 服务器 |
 | `websocket-server` | chatapp-websocket | 4567 | WebSocket 实时服务器 |
 
@@ -550,7 +588,33 @@ docker-compose down
 
 # 停止并删除数据卷 (清除数据库数据)
 docker-compose down -v
+
+# 强制重新构建（更新依赖时使用）
+docker-compose build --no-cache
 ```
+
+### 三阶段构建说明
+
+项目采用 Docker **三阶段构建**优化镜像体积和构建效率：
+
+```
+阶段1: builder-vcpkg          阶段2: builder-app          阶段3: runtime
+┌───────────────────────┐    ┌───────────────────────┐    ┌───────────────────────┐
+│ 克隆 vcpkg            │    │ 复制项目代码          │    │ 仅包含运行时依赖      │
+│ 安装所有依赖          │    │ 编译项目              │    │ 复制编译产物          │
+│ (体积约 8GB+)         │    │ (继承依赖层)          │    │ (体积约 100MB)        │
+└───────────────────────┘    └───────────────────────┘    └───────────────────────┘
+         │                            │                            │
+         └───────────┬────────────────┘                            │
+                     ▼                                             │
+              Docker 缓存层 ◄─────────────────────────────────────┘
+              (依赖不变时跳过)
+```
+
+**优势**：
+- 运行时镜像体积小（约 100MB），启动快
+- 依赖安装层可缓存，后续构建只编译代码
+- 不依赖宿主机的 vcpkg，跨平台构建一致
 
 ### 单独构建镜像
 
@@ -564,23 +628,28 @@ docker build -f ChatServer-http/Dockerfile -t chatapp-http .
 docker build -f ChatServer-websocket/Dockerfile -t chatapp-websocket .
 ```
 
-### 客户端连接 Docker 服务
-
-修改 [ChatClient/src/global.h](ChatClient/src/global.h) 中的连接地址：
-
-```cpp
-// 如果 Docker 部署在同一机器
-static const QString HTTP_BASE_URL = "http://127.0.0.1:8080";
-static const QString WEBSOCKET_URL = "ws://127.0.0.1:4567/ws";
-
-// 如果 Docker 部署在远程服务器
-static const QString HTTP_BASE_URL = "http://your-server-ip:8080";
-static const QString WEBSOCKET_URL = "ws://your-server-ip:4567/ws";
-```
-
 ### Docker 部署注意事项
 
 1. **数据库初始化**: Docker Compose 会自动执行 SQL 初始化脚本
 2. **数据持久化**: 数据库和 Redis 数据存储在 Docker 卷中
 3. **配置安全**: 不要将 `config.json` 和 `.env` 文件提交到版本控制
 4. **资源限制**: 可在 `docker-compose.yml` 中添加 `deploy.resources` 限制内存/CPU
+5. **构建缓存**: 修改 `vcpkg.json` 会触发重新安装所有依赖，耗时较长
+
+## 分布式部署验证
+
+启动后，可以通过以下方式验证分布式功能：
+
+1. **连接测试**: 使用不同 IP 的客户端连接到 Nginx
+2. **消息转发测试**: 用户 A 发送消息给用户 B（连接到不同服务器）
+3. **状态同步测试**: 用户上线/下线状态应正确同步
+4. **日志验证**: 检查各服务器日志确认跨服务器消息传递
+
+分布式技术实现总结：
+
+| 组件 | 技术 | 实现方式 |
+|------|------|----------|
+| 负载均衡 | Nginx | ip_hash 确保同一用户连接到同一服务器 |
+| 消息路由 | Redis Pub/Sub | 跨服务器消息广播和转发 |
+| 去重机制 | Server ID | 每个服务器生成唯一 ID，忽略自己发送的消息 |
+| 状态管理 | Redis + PostgreSQL | 共享状态存储 |
