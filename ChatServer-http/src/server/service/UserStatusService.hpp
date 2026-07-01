@@ -1,11 +1,11 @@
 #pragma once
 
 #include "global.h"
-#include "../dto/UserStatusDto.hpp"
-#include "../vo/UserStatusVo.hpp"
-#include "../postgresql/AppPostgresql.hpp"
-#include "../../redis/AppRedis.hpp"
-#include "../../tool/UuidIdCache.hpp"
+#include "server/dto/UserStatusDto.hpp"
+#include "server/vo/UserStatusVo.hpp"
+#include "server/postgresql/AppPostgresql.hpp"
+#include "redis/AppRedis.hpp"
+#include "tool/UuidIdCache.hpp"
 
 class StatusService {
 private:

@@ -1,11 +1,11 @@
 #pragma once
 
 #include "global.h"
-#include"../dto/GeneralDto.hpp"
-#include "../dto/ConversationDto.hpp"
-#include "../vo/ConversationVo.hpp"
-#include "../postgresql/AppPostgresql.hpp"
-#include "../../tool/UuidIdCache.hpp"
+#include"server/dto/GeneralDto.hpp"
+#include "server/dto/ConversationDto.hpp"
+#include "server/vo/ConversationVo.hpp"
+#include "server/postgresql/AppPostgresql.hpp"
+#include "tool/UuidIdCache.hpp"
 
 class ConversationService {
 private:

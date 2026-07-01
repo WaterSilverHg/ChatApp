@@ -1,8 +1,8 @@
 #pragma once
 
 #include "global.h"
-#include"../dto/AuthDto.hpp"
-#include"../vo/UserStatusVo.hpp"
+#include"server/dto/AuthDto.hpp"
+#include"server/vo/UserStatusVo.hpp"
 
 #include OATPP_CODEGEN_BEGIN(DTO) 
 // 用户资料

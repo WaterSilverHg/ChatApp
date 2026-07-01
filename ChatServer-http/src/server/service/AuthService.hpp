@@ -1,12 +1,12 @@
 #pragma once
 
 #include "global.h"
-#include "../dto/AuthDto.hpp"
-#include "../vo/AuthVo.hpp"
-#include"../dto/GeneralDto.hpp"
-#include "../postgresql/AppPostgresql.hpp"
-#include "../../jwt/Appjwt.h"
-#include "../../smtp/AppEmail.hpp"
+#include "server/dto/AuthDto.hpp"
+#include "server/vo/AuthVo.hpp"
+#include"server/dto/GeneralDto.hpp"
+#include "server/postgresql/AppPostgresql.hpp"
+#include "jwt/Appjwt.h"
+#include "smtp/AppEmail.hpp"
 
 class AuthService {
     using Status = oatpp::web::protocol::http::Status;

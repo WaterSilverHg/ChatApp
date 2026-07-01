@@ -1,14 +1,14 @@
 #pragma once
 
 #include "global.h"
-#include"../dto/GeneralDto.hpp"
-#include "../dto/FileDto.hpp"
-#include "../vo/FileVo.hpp"
-#include "../postgresql/AppPostgresql.hpp"
-#include "../../cos/AppCos.hpp"
-#include "../../redis/AppRedis.hpp"
-#include "../../tool/UuidIdCache.hpp"
-#include "../../tool/HashUtils.hpp"
+#include"server/dto/GeneralDto.hpp"
+#include "server/dto/FileDto.hpp"
+#include "server/vo/FileVo.hpp"
+#include "server/postgresql/AppPostgresql.hpp"
+#include "cos/AppCos.hpp"
+#include "redis/AppRedis.hpp"
+#include "tool/UuidIdCache.hpp"
+#include "tool/HashUtils.hpp"
 
 class FileService {
 private:

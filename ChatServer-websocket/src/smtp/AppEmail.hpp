@@ -1,5 +1,5 @@
 #pragma once
-#include"../global.h"
+#include"global.h"
 
 class AppEmail{
     mailio::message msg_template;

@@ -1,11 +1,11 @@
 #pragma once
 
 #include "global.h"
-#include "../dto/FriendDto.hpp"
-#include "../dto/GeneralDto.hpp"
-#include "../vo/FriendVo.hpp"
-#include "../postgresql/AppPostgresql.hpp"
-#include "../../tool/UuidIdCache.hpp"
+#include "server/dto/FriendDto.hpp"
+#include "server/dto/GeneralDto.hpp"
+#include "server/vo/FriendVo.hpp"
+#include "server/postgresql/AppPostgresql.hpp"
+#include "tool/UuidIdCache.hpp"
 
 class FriendService {
 private:

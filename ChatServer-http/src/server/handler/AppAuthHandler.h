@@ -1,8 +1,8 @@
 #pragma once
-#include"../../global.h"
-#include "../../jwt/Appjwt.h"
-//#include"../postgresql/AppPostgresql.hpp"
-#include"../../redis/AppRedis.hpp"
+#include"global.h"
+#include "jwt/Appjwt.h"
+//#include"server/postgresql/AppPostgresql.hpp"
+#include"redis/AppRedis.hpp"
 
 class AppAuthHandler : public oatpp::web::server::handler::BearerAuthorizationHandler {
 private:

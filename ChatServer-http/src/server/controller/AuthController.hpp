@@ -1,8 +1,8 @@
 #pragma once
 
 #include "global.h"
-#include "../service/AuthService.hpp"
-#include "../handler/AppAuthHandler.h"
+#include "server/service/AuthService.hpp"
+#include "server/handler/AppAuthHandler.h"
 
 #include OATPP_CODEGEN_BEGIN(ApiController) 
 

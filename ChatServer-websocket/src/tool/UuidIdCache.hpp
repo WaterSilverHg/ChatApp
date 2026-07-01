@@ -1,9 +1,9 @@
 #pragma once
 
-#include"../global.h"
-#include "../redis/AppRedis.hpp"
-#include "../server/postgresql/AppPostgresql.hpp"
-#include "../server/dto/GeneralDto.hpp"
+#include"global.h"
+#include "redis/AppRedis.hpp"
+#include "server/postgresql/AppPostgresql.hpp"
+#include "server/dto/GeneralDto.hpp"
 
 // ============================================================
 // UuidIdCache — Redis 缓存 UUID→BIGINT ID 映射，防缓存穿透

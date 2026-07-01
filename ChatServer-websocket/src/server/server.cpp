@@ -9,7 +9,7 @@
 //#include "controller/ConversationController.hpp"
 //#include "controller/UserStatusController.hpp"
 #include "controller/WebSocketController.hpp"
-#include "../redis/RedisPubSubManager.hpp"
+#include "redis/RedisPubSubManager.hpp"
 
 static void run() {
 

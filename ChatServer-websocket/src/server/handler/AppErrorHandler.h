@@ -1,7 +1,7 @@
 #pragma once
 
-#include"../../global.h"
-#include "../dto/ErrorStatusDto.hpp"
+#include"global.h"
+#include "server/dto/ErrorStatusDto.hpp"
 
 class AppErrorHandler : public oatpp::web::server::handler::ErrorHandler {
 private:

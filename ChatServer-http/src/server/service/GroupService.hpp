@@ -1,12 +1,12 @@
 #pragma once
 
 #include "global.h"
-#include "../dto/GroupDto.hpp"
-#include "../vo/GroupVo.hpp"
-#include "../postgresql/AppPostgresql.hpp"
-#include "../../redis/AppRedis.hpp"
-#include "../../tool/HashUtils.hpp"
-#include "../../tool/UuidIdCache.hpp"
+#include "server/dto/GroupDto.hpp"
+#include "server/vo/GroupVo.hpp"
+#include "server/postgresql/AppPostgresql.hpp"
+#include "redis/AppRedis.hpp"
+#include "tool/HashUtils.hpp"
+#include "tool/UuidIdCache.hpp"
 
 class GroupService {
 private:

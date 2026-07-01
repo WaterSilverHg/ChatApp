@@ -1,13 +1,13 @@
 #pragma once
 
 #include "global.h"
-#include "../dto/AuthDto.hpp"
-#include "../dto/FriendDto.hpp"
-#include "../dto/MessageDto.hpp"
-#include "../dto/GroupDto.hpp"
-#include "../dto/ConversationDto.hpp"
-#include "../dto/FileDto.hpp"
-#include "../dto/UserStatusDto.hpp"
+#include "server/dto/AuthDto.hpp"
+#include "server/dto/FriendDto.hpp"
+#include "server/dto/MessageDto.hpp"
+#include "server/dto/GroupDto.hpp"
+#include "server/dto/ConversationDto.hpp"
+#include "server/dto/FileDto.hpp"
+#include "server/dto/UserStatusDto.hpp"
 
 
 //即使你sql语句中用了大写的变量，它映射还是映射在小写上

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../global.h"
+#include "global.h"
 
 class AppCos {
 private:
@@ -14,7 +14,7 @@ public:
            const std::string& bucketName) 
         : m_bucketName(bucketName), m_region(region) {
         qcloud_cos::CosConfig config(std::stoull(appId), secretId, secretKey, region);
-        //(5000);  // Á¬½Ó³¬Ê± 5 Ãë
+        //(5000);  // ï¿½ï¿½ï¿½Ó³ï¿½Ê± 5 ï¿½ï¿½
         m_cosApi = std::make_shared<qcloud_cos::CosAPI>(config);
     }
 

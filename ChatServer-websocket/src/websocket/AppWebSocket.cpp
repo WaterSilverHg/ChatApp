@@ -1,5 +1,5 @@
 #include "AppWebSocket.hpp"
-#include "../redis/RedisPubSubManager.hpp"
+#include "redis/RedisPubSubManager.hpp"
 
 void AppWebSocket::setPubSubManager(const std::shared_ptr<RedisPubSubManager>& pubSubManager) {
     m_pubSubManager = pubSubManager;

@@ -1,6 +1,6 @@
 #pragma once
-#include"../../global.h"
-#include"../handler/AppAuthHandler.h"
+#include"global.h"
+#include"server/handler/AppAuthHandler.h"
 
 class AppAuthInterceptor : public oatpp::web::server::interceptor::RequestInterceptor {
 private:

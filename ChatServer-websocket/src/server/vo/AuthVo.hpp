@@ -1,7 +1,7 @@
 #pragma once
 
 #include "global.h"
-#include"../dto/AuthDto.hpp"
+#include"server/dto/AuthDto.hpp"
 
 #include OATPP_CODEGEN_BEGIN(DTO) 
 // 用户资料

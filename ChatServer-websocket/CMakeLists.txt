@@ -40,7 +40,7 @@ else()
     message(FATAL_ERROR "不支持的平台")
 endif()
 
-# ==================== Linux 逻辑 ====================
+# ==================== Linux 逻辑（仅保留 Poco 和 redis++ 手动查找） ====================
 if(PLATFORM_LINUX)
     # ----- Poco 手动查找（Linux） -----
     set(POCO_INCLUDE_DIR "${VCPKG_INSTALLED_DIR}/include")
@@ -78,77 +78,6 @@ if(PLATFORM_LINUX)
         message(WARNING "⚠️ redis++ 未找到，Redis 功能将不可用")
         set(REDIS_PP_FOUND FALSE)
     endif()
-
-    # ----- mailio 手动查找（Linux） -----
-    set(MAILIO_INCLUDE_DIR "${VCPKG_INSTALLED_DIR}/include")
-    set(MAILIO_LIBRARY_DIR "${VCPKG_INSTALLED_DIR}/lib")
-    find_library(MAILIO_LIBRARY NAMES mailio libmailio.so libmailio.a PATHS ${MAILIO_LIBRARY_DIR} REQUIRED)
-    message(STATUS "✅ mailio (Linux) - ${MAILIO_LIBRARY}")
-
-    # ----- Oat++ 手动查找（Linux） -----
-    set(OATPP_INCLUDE_DIR "${VCPKG_INSTALLED_DIR}/include")
-    set(OATPP_LIBRARY_DIR "${VCPKG_INSTALLED_DIR}/lib")
-    find_library(OATPP_CORE_LIBRARY NAMES oatpp liboatpp.so liboatpp.a PATHS ${OATPP_LIBRARY_DIR} REQUIRED)
-    find_library(OATPP_WEBSOCKET_LIBRARY NAMES oatpp-websocket liboatpp-websocket.so liboatpp-websocket.a PATHS ${OATPP_LIBRARY_DIR})
-    find_library(OATPP_JSON_LIBRARY NAMES oatpp-parser-json liboatpp-parser-json.so liboatpp-parser-json.a PATHS ${OATPP_LIBRARY_DIR})
-    find_library(OATPP_SWAGGER_LIBRARY NAMES oatpp-swagger liboatpp-swagger.so liboatpp-swagger.a PATHS ${OATPP_LIBRARY_DIR})
-    find_library(OATPP_POSTGRESQL_LIBRARY NAMES oatpp-postgresql liboatpp-postgresql.so liboatpp-postgresql.a PATHS ${OATPP_LIBRARY_DIR})
-
-    set(OATPP_SWAGGER_RESOURCES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/res")
-
-    message(STATUS "✅ Oat++ (Linux)")
-    message(STATUS "  核心库: ${OATPP_CORE_LIBRARY}")
-    if(OATPP_WEBSOCKET_LIBRARY)
-        message(STATUS "  WebSocket: ${OATPP_WEBSOCKET_LIBRARY}")
-    endif()
-    if(OATPP_JSON_LIBRARY)
-        message(STATUS "  JSON: ${OATPP_JSON_LIBRARY}")
-    endif()
-    if(OATPP_SWAGGER_LIBRARY)
-        message(STATUS "  Swagger: ${OATPP_SWAGGER_LIBRARY}")
-    endif()
-    if(OATPP_POSTGRESQL_LIBRARY)
-        message(STATUS "  PostgreSQL: ${OATPP_POSTGRESQL_LIBRARY}")
-    endif()
-
-    # 导入目标
-    add_library(oatpp::oatpp UNKNOWN IMPORTED)
-    set_target_properties(oatpp::oatpp PROPERTIES
-        IMPORTED_LOCATION "${OATPP_CORE_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
-    )
-    if(OATPP_WEBSOCKET_LIBRARY)
-        add_library(oatpp::oatpp-websocket UNKNOWN IMPORTED)
-        set_target_properties(oatpp::oatpp-websocket PROPERTIES
-            IMPORTED_LOCATION "${OATPP_WEBSOCKET_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
-            INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
-        )
-    endif()
-    if(OATPP_JSON_LIBRARY)
-        add_library(oatpp::oatpp-parser-json UNKNOWN IMPORTED)
-        set_target_properties(oatpp::oatpp-parser-json PROPERTIES
-            IMPORTED_LOCATION "${OATPP_JSON_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
-            INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
-        )
-    endif()
-    if(OATPP_SWAGGER_LIBRARY)
-        add_library(oatpp::oatpp-swagger UNKNOWN IMPORTED)
-        set_target_properties(oatpp::oatpp-swagger PROPERTIES
-            IMPORTED_LOCATION "${OATPP_SWAGGER_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
-            INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
-        )
-    endif()
-    if(OATPP_POSTGRESQL_LIBRARY)
-        add_library(oatpp::oatpp-postgresql UNKNOWN IMPORTED)
-        set_target_properties(oatpp::oatpp-postgresql PROPERTIES
-            IMPORTED_LOCATION "${OATPP_POSTGRESQL_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
-            INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
-        )
-    endif()
 endif()
 
 # ==================== Windows 逻辑 ====================
@@ -185,35 +114,34 @@ if(PLATFORM_WINDOWS)
             set(REDIS_PP_FOUND FALSE)
         endif()
     endif()
-
-    # ----- mailio -----
-    find_package(mailio CONFIG)
-    if(mailio_FOUND)
-        message(STATUS "✅ mailio")
-    else()
-        message(WARNING "⚠️ mailio 未找到")
-    endif()
-
-    # ----- Oat++ (Windows) -----
-    find_package(oatpp CONFIG REQUIRED)
-    message(STATUS "✅ oatpp")
-    find_package(oatpp-websocket CONFIG)
-    if(oatpp-websocket_FOUND)
-        message(STATUS "✅ oatpp-websocket")
-    endif()
-    find_package(oatpp-swagger CONFIG)
-    if(oatpp-swagger_FOUND)
-        message(STATUS "✅ oatpp-swagger")
-    endif()
-    find_package(oatpp-postgresql CONFIG)
-    if(oatpp-postgresql_FOUND)
-        message(STATUS "✅ oatpp-postgresql")
-    endif()
 endif()
 
-# ==================== 公共依赖（跨平台） ====================
+# ==================== 公共依赖（跨平台，使用 find_package） ====================
 find_package(OpenSSL REQUIRED)
 message(STATUS "✅ OpenSSL ${OPENSSL_VERSION}")
+
+# Oat++ 及其模块（所有平台统一使用 find_package，由 vcpkg 提供配置）
+find_package(oatpp CONFIG REQUIRED)
+message(STATUS "✅ oatpp")
+find_package(oatpp-websocket CONFIG)
+if(oatpp-websocket_FOUND)
+    message(STATUS "✅ oatpp-websocket")
+endif()
+find_package(oatpp-swagger CONFIG)
+if(oatpp-swagger_FOUND)
+    message(STATUS "✅ oatpp-swagger")
+endif()
+find_package(oatpp-postgresql CONFIG)
+if(oatpp-postgresql_FOUND)
+    message(STATUS "✅ oatpp-postgresql")
+endif()
+
+find_package(mailio CONFIG)
+if(mailio_FOUND)
+    message(STATUS "✅ mailio")
+else()
+    message(WARNING "⚠️ mailio 未找到")
+endif()
 
 # ==================== bcrypt（仅 Windows） ====================
 if(WIN32)
@@ -236,43 +164,35 @@ add_executable(ChatServer ${SRC_FILES})
 target_include_directories(ChatServer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    # Linux 下手动添加 Poco 和 redis++ 头文件
+    # Linux 下手动添加 Poco 和 redis++ 头文件（Windows 下由 find_package 目标自动传递）
     $<$<BOOL:${PLATFORM_LINUX}>:${POCO_INCLUDE_DIRS}>
     $<$<BOOL:${PLATFORM_LINUX}>:${REDIS_PP_INCLUDE_DIR}>
-    $<$<BOOL:${PLATFORM_LINUX}>:${MAILIO_INCLUDE_DIR}>
     # Windows 下若 redis++ 为手动模式，则添加头文件
     $<$<AND:$<BOOL:${PLATFORM_WINDOWS}>,$<NOT:$<BOOL:${redis++_FOUND}>>>:${REDIS_PP_INCLUDE_DIR}>
 )
 
 # ==================== 链接库 ====================
-if(PLATFORM_LINUX)
-    target_link_libraries(ChatServer PRIVATE
-        ${OATPP_CORE_LIBRARY}
-        $<$<BOOL:${OATPP_WEBSOCKET_LIBRARY}>:${OATPP_WEBSOCKET_LIBRARY}>
-        $<$<BOOL:${OATPP_JSON_LIBRARY}>:${OATPP_JSON_LIBRARY}>
-        $<$<BOOL:${OATPP_SWAGGER_LIBRARY}>:${OATPP_SWAGGER_LIBRARY}>
-        $<$<BOOL:${OATPP_POSTGRESQL_LIBRARY}>:${OATPP_POSTGRESQL_LIBRARY}>
-        ${POCO_LIBRARIES}
-        ${OPENSSL_LIBRARIES}
-        ${MAILIO_LIBRARY}
-        ${REDIS_PP_LIBS}
-        pthread
-        dl
-    )
-else()
-    target_link_libraries(ChatServer PRIVATE
-        oatpp::oatpp
-        $<$<BOOL:${oatpp-websocket_FOUND}>:oatpp::oatpp-websocket>
-        $<$<BOOL:${oatpp-swagger_FOUND}>:oatpp::oatpp-swagger>
-        $<$<BOOL:${oatpp-postgresql_FOUND}>:oatpp::oatpp-postgresql>
-        ${POCO_LIBRARIES}
-        OpenSSL::SSL OpenSSL::Crypto
-        $<$<BOOL:${mailio_FOUND}>:mailio::mailio>
-        $<$<BOOL:${REDIS_PP_FOUND}>:${REDIS_PP_LIBS}>
-    )
-    if(WIN32 AND BCRYPT_LIB)
-        target_link_libraries(ChatServer PRIVATE ${BCRYPT_LIB})
-    endif()
+target_link_libraries(ChatServer PRIVATE
+    # Oat++ 及其模块（由 find_package 提供目标）
+    oatpp::oatpp
+    $<$<BOOL:${oatpp-websocket_FOUND}>:oatpp::oatpp-websocket>
+    $<$<BOOL:${oatpp-swagger_FOUND}>:oatpp::oatpp-swagger>
+    $<$<BOOL:${oatpp-postgresql_FOUND}>:oatpp::oatpp-postgresql>
+    # Poco
+    ${POCO_LIBRARIES}
+    # OpenSSL
+    OpenSSL::SSL OpenSSL::Crypto
+    # mailio
+    $<$<BOOL:${mailio_FOUND}>:mailio::mailio>
+    # redis++
+    $<$<BOOL:${REDIS_PP_FOUND}>:${REDIS_PP_LIBS}>
+    # 系统库
+    $<$<PLATFORM_ID:Linux>:pthread>
+    $<$<PLATFORM_ID:Linux>:dl>
+)
+
+if(WIN32 AND BCRYPT_LIB)
+    target_link_libraries(ChatServer PRIVATE ${BCRYPT_LIB})
 endif()
 
 # ==================== 平台特定设置 ====================
@@ -291,7 +211,7 @@ set_target_properties(ChatServer PROPERTIES
 )
 
 # ==================== 宏定义 ====================
-if(PLATFORM_LINUX AND OATPP_SWAGGER_LIBRARY OR (PLATFORM_WINDOWS AND oatpp-swagger_FOUND))
+if(oatpp-swagger_FOUND)
     set(OATPP_SWAGGER_RESOURCES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/res")
     target_compile_definitions(ChatServer PRIVATE
         OATPP_SWAGGER_RES_PATH="${OATPP_SWAGGER_RESOURCES_DIR}"
@@ -302,7 +222,6 @@ target_compile_definitions(ChatServer PRIVATE
     CONF_PATH="${CMAKE_CURRENT_SOURCE_DIR}/config.json"
 )
 
-# ==================== 安装 ====================
 install(TARGETS ChatServer RUNTIME DESTINATION bin)
 
 # ==================== 调试信息 ====================
@@ -319,8 +238,6 @@ if(PLATFORM_LINUX)
         message(STATUS "  redis++: ${REDIS_PP_LIBRARY}")
         message(STATUS "  hiredis: ${HIREDIS_LIBRARY}")
     endif()
-    message(STATUS "  mailio: ${MAILIO_LIBRARY}")
-    message(STATUS "  Oat++ 核心: ${OATPP_CORE_LIBRARY}")
 endif()
 if(PLATFORM_WINDOWS)
     if(Poco_FOUND)
@@ -328,9 +245,6 @@ if(PLATFORM_WINDOWS)
     endif()
     if(redis++_FOUND)
         message(STATUS "  redis++: 已找到")
-    endif()
-    if(mailio_FOUND)
-        message(STATUS "  mailio: 已找到")
     endif()
 endif()
 message(STATUS "========================================")

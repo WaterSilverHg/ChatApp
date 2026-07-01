@@ -1,13 +1,13 @@
 #pragma once
 #include"global.h"
-#include"../handler/AppErrorHandler.h"
-#include "../interceptor/AppAuthInterceptor.h"
-#include "../../websocket/AppWebSocket.hpp"
-#include "../handler/SharedWebSocketResources.hpp"
-#include "../handler/WebSocketInstanceListener.hpp"
-#include "../postgresql/AppPostgresql.hpp"
-#include "../../jwt/Appjwt.h"
-#include "../../redis/RedisPubSubManager.hpp"
+#include"server/handler/AppErrorHandler.h"
+#include "server/interceptor/AppAuthInterceptor.h"
+#include "websocket/AppWebSocket.hpp"
+#include "server/handler/SharedWebSocketResources.hpp"
+#include "server/handler/WebSocketInstanceListener.hpp"
+#include "server/postgresql/AppPostgresql.hpp"
+#include "jwt/Appjwt.h"
+#include "redis/RedisPubSubManager.hpp"
 
 /**
  *  Class which creates and holds Application components and registers components in oatpp::base::Environment

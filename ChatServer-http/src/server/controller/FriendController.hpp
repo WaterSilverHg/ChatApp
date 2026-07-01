@@ -1,10 +1,10 @@
 #pragma once
 
 #include "global.h"
-#include "../dto/FriendDto.hpp"
-#include "../vo/FriendVO.hpp"
-#include "../service/FriendService.hpp"
-#include "../handler/AppAuthHandler.h"
+#include "server/dto/FriendDto.hpp"
+#include "server/vo/FriendVO.hpp"
+#include "server/service/FriendService.hpp"
+#include "server/handler/AppAuthHandler.h"
 
 #include OATPP_CODEGEN_BEGIN(ApiController) 
 

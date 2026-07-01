@@ -1,10 +1,10 @@
 #pragma once
 
 #include "global.h"
-#include "../dto/ConversationDto.hpp"
-#include "../vo/ConversationVO.hpp"
-#include "../service/ConversationService.hpp"
-#include "../handler/AppAuthHandler.h"
+#include "server/dto/ConversationDto.hpp"
+#include "server/vo/ConversationVO.hpp"
+#include "server/service/ConversationService.hpp"
+#include "server/handler/AppAuthHandler.h"
 
 #include OATPP_CODEGEN_BEGIN(ApiController) 
 

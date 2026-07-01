@@ -1,10 +1,10 @@
 #pragma once
 
 #include "global.h"
-#include "../vo/NotificationVo.hpp"
-#include "../postgresql/AppPostgresql.hpp"
-#include "../../redis/AppRedis.hpp"
-#include "../../tool/UuidIdCache.hpp"
+#include "server/vo/NotificationVo.hpp"
+#include "server/postgresql/AppPostgresql.hpp"
+#include "redis/AppRedis.hpp"
+#include "tool/UuidIdCache.hpp"
 
 class NotificationService {
 private:

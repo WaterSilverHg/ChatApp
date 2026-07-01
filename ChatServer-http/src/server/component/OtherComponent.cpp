@@ -1,10 +1,10 @@
 #pragma once
 #include"global.h"
-#include"../../jwt/Appjwt.h"
-#include"../../redis/AppRedis.hpp"
-#include "../../cos/AppCos.hpp"
-#include"../../smtp/AppEmail.hpp"
-//#include"../../websocket/AppWebSocket.hpp"
+#include"jwt/Appjwt.h"
+#include"redis/AppRedis.hpp"
+#include "cos/AppCos.hpp"
+#include"smtp/AppEmail.hpp"
+//#include"websocket/AppWebSocket.hpp"
 
 class OtherComponent {
 public:

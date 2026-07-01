@@ -1,9 +1,9 @@
 #pragma once
 #include"global.h"
-#include"../handler/AppErrorHandler.h"
-#include "../../tool/UuidIdCache.hpp"
-#include"../../jwt/Appjwt.h"
-//#include "../interceptor/AppAuthInterceptor.h"
+#include"server/handler/AppErrorHandler.h"
+#include "tool/UuidIdCache.hpp"
+#include"jwt/Appjwt.h"
+//#include "server/interceptor/AppAuthInterceptor.h"
 /**
  *  Class which creates and holds Application components and registers components in oatpp::base::Environment
  *  Order of components initialization is from top to bottom

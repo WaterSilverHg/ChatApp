@@ -1,9 +1,9 @@
 #pragma once
-#include "../global.h"
-#include "../websocket/AppWebSocket.hpp"
+#include "global.h"
+#include "websocket/AppWebSocket.hpp"
 #include "AppRedis.hpp"
-#include "../server/dto/WebSocketMessageDto.hpp"
-#include "../server/dto/DistributedDto.hpp"
+#include "server/dto/WebSocketMessageDto.hpp"
+#include "server/dto/DistributedDto.hpp"
 
 class RedisPubSubManager {
 public:

@@ -40,7 +40,7 @@ else()
     message(FATAL_ERROR "不支持的平台")
 endif()
 
-# ==================== Linux 逻辑（原样保留，路径改用变量） ====================
+# ==================== Linux 逻辑（仅保留 Poco 和 redis++ 手动查找） ====================
 if(PLATFORM_LINUX)
     # ----- Poco 手动查找（Linux） -----
     set(POCO_INCLUDE_DIR "${VCPKG_INSTALLED_DIR}/include")
@@ -116,10 +116,11 @@ if(PLATFORM_WINDOWS)
     endif()
 endif()
 
-# ==================== 公共依赖（跨平台） ====================
+# ==================== 公共依赖（跨平台，使用 find_package） ====================
 find_package(OpenSSL REQUIRED)
 message(STATUS "✅ OpenSSL ${OPENSSL_VERSION}")
 
+# Oat++ 及其模块（所有平台统一使用 find_package，由 vcpkg 提供配置）
 find_package(oatpp CONFIG REQUIRED)
 message(STATUS "✅ oatpp")
 find_package(oatpp-websocket CONFIG)
@@ -194,15 +195,16 @@ target_include_directories(ChatServer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${COS_INCLUDE_DIR}
-    # 手动查找时添加对应头文件目录（Linux 使用，Windows 若未找到也使用）
+    # Linux 下手动添加 Poco 和 redis++ 头文件（Windows 下由 find_package 目标自动传递）
     $<$<BOOL:${PLATFORM_LINUX}>:${POCO_INCLUDE_DIRS}>
     $<$<BOOL:${PLATFORM_LINUX}>:${REDIS_PP_INCLUDE_DIR}>
+    # Windows 下若 redis++ 为手动模式，则添加头文件
     $<$<AND:$<BOOL:${PLATFORM_WINDOWS}>,$<NOT:$<BOOL:${redis++_FOUND}>>>:${REDIS_PP_INCLUDE_DIR}>
 )
 
 # ==================== 链接库 ====================
 target_link_libraries(ChatServer PRIVATE
-    # Oat++ 及其模块
+    # Oat++ 及其模块（由 find_package 提供目标）
     oatpp::oatpp
     $<$<BOOL:${oatpp-websocket_FOUND}>:oatpp::oatpp-websocket>
     $<$<BOOL:${oatpp-swagger_FOUND}>:oatpp::oatpp-swagger>

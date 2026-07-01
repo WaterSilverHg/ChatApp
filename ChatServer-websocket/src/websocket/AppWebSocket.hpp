@@ -2,7 +2,7 @@
 
 #include "global.h"
 
-#include"../server/coroutine/Coroutines.hpp"
+#include"server/coroutine/Coroutines.hpp"
 
 // 前向声明，解决循环依赖
 class RedisPubSubManager;

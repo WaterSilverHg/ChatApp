@@ -1,8 +1,8 @@
 #pragma once
 
 #include "global.h"
-#include "../handler/SharedWebSocketResources.hpp"
-#include "../handler/WebSocketInstanceListener.hpp"
+#include "server/handler/SharedWebSocketResources.hpp"
+#include "server/handler/WebSocketInstanceListener.hpp"
 #include "oatpp-websocket/Handshaker.hpp"
 
 #include OATPP_CODEGEN_BEGIN(ApiController)

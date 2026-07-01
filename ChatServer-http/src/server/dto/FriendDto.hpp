@@ -1,7 +1,7 @@
 #pragma once
 
 #include "global.h"
-#include"../vo/UserStatusVo.hpp"
+#include"server/vo/UserStatusVo.hpp"
 
 #include OATPP_CODEGEN_BEGIN(DTO) 
 

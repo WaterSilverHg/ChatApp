@@ -1,11 +1,11 @@
 #pragma once
 
 #include "global.h"
-#include"../dto/ErrorStatusDto.hpp"
-#include "../dto/FileDto.hpp"
-#include "../vo/FileVO.hpp"
-#include "../service/FileService.hpp"
-#include "../handler/AppAuthHandler.h"
+#include"server/dto/ErrorStatusDto.hpp"
+#include "server/dto/FileDto.hpp"
+#include "server/vo/FileVO.hpp"
+#include "server/service/FileService.hpp"
+#include "server/handler/AppAuthHandler.h"
 
 #include OATPP_CODEGEN_BEGIN(ApiController) 
 

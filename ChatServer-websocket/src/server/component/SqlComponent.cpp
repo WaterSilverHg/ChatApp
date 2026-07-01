@@ -1,7 +1,7 @@
 #pragma once
 #include"global.h"
-#include"../postgresql/AppPostgresql.hpp"
-#include"../../tool/UuidIdCache.hpp"
+#include"server/postgresql/AppPostgresql.hpp"
+#include"tool/UuidIdCache.hpp"
 /**
  *  Class which creates and holds Application components and registers components in oatpp::base::Environment
  *  Order of components initialization is from top to bottom

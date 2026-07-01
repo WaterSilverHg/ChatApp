@@ -3,9 +3,9 @@
 #include "global.h"
 #include "LightweightAsyncWebSocketListener.hpp"
 #include "SharedWebSocketResources.hpp"
-#include "../postgresql/AppPostgresql.hpp"
-#include "../../jwt/Appjwt.h"
-#include "../../websocket/AppWebSocket.hpp"
+#include "server/postgresql/AppPostgresql.hpp"
+#include "jwt/Appjwt.h"
+#include "websocket/AppWebSocket.hpp"
 
 class WebSocketInstanceListener : public oatpp::websocket::AsyncConnectionHandler::SocketInstanceListener {
 private:
