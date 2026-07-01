@@ -6,7 +6,6 @@
 #include <oatpp/core/data/mapping/type/Object.hpp>
 #include <oatpp/core/base/Environment.hpp>
 #include "oatpp/network/Server.hpp"
-#include "oatpp-swagger/Controller.hpp"
 #include "oatpp-websocket/ConnectionHandler.hpp"
 #include "oatpp/web/server/HttpConnectionHandler.hpp"
 #include "oatpp/web/server/HttpRouter.hpp"
@@ -31,8 +30,8 @@
 #include <oatpp-postgresql/orm.hpp>
 
 //Swagger
-#include "oatpp-swagger/Controller.hpp"
-#include "oatpp-swagger/Resources.hpp"
+//#include "oatpp-swagger/Controller.hpp"
+//#include "oatpp-swagger/Resources.hpp"
 
 //websocket
 //#include <oatpp-websocket/Handshaker.hpp>

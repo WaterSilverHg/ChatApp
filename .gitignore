@@ -20,7 +20,7 @@ cmake-build-*/
 *.ilk
 
 # 依赖库
-lib/
+# lib/
 
 # 配置文件
 api.json
