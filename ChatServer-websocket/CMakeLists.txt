@@ -57,24 +57,20 @@ endif()
 # ==================== 查找 mailio 库 ====================
 message(STATUS "查找 mailio...")
 if(PLATFORM_LINUX)
-    find_path(MAILIO_INCLUDE_DIR 
-        NAMES mailio/mailio.hpp
-        PATHS /usr/local/include /usr/include
-        PATH_SUFFIXES mailio
-    )
-    
+    set(VCPKG_ROOT "/opt/vcpkg")
+    set(MAILIO_ROOT "${VCPKG_ROOT}/installed/x64-linux")
+    set(MAILIO_INCLUDE_DIR "${MAILIO_ROOT}/include")
+    set(MAILIO_LIBRARY_DIR "${MAILIO_ROOT}/lib")
+
     find_library(MAILIO_LIBRARY 
         NAMES mailio libmailio.so libmailio.a
-        PATHS /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib
+        PATHS ${MAILIO_LIBRARY_DIR}
+        REQUIRED
     )
-    
-    if(MAILIO_INCLUDE_DIR AND MAILIO_LIBRARY)
-        message(STATUS "✅ 找到 mailio")
-        message(STATUS "   mailio 包含目录: ${MAILIO_INCLUDE_DIR}")
-        message(STATUS "   mailio 库: ${MAILIO_LIBRARY}")
-    else()
-        message(WARNING "⚠️ 未找到 mailio，邮件功能将不可用。请安装: sudo apt install libmailio-dev")
-    endif()
+
+    message(STATUS "✅ 找到 mailio (Linux 手动查找)")
+    message(STATUS "   mailio 包含目录: ${MAILIO_INCLUDE_DIR}")
+    message(STATUS "   mailio 库: ${MAILIO_LIBRARY}")
     
 elseif(PLATFORM_WINDOWS)
     if(NOT VCPKG_ROOT)
@@ -95,37 +91,27 @@ endif()
 # ==================== 查找 redis++ 库 ====================
 message(STATUS "查找 redis++...")
 if(PLATFORM_LINUX)
-    find_path(REDIS_PLUS_PLUS_INCLUDE_DIR 
-        NAMES sw/redis++/redis++.h
-        PATHS /usr/local/include /usr/include
-    )
-    
+    set(VCPKG_ROOT "/opt/vcpkg")
+    set(REDIS_ROOT "${VCPKG_ROOT}/installed/x64-linux")
+    set(REDIS_PLUS_PLUS_INCLUDE_DIR "${REDIS_ROOT}/include")
+    set(REDIS_PLUS_PLUS_LIBRARY_DIR "${REDIS_ROOT}/lib")
+
     find_library(REDIS_PLUS_PLUS_LIBRARY 
         NAMES redis++ libredis++.so libredis++.a
-        PATHS /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib
+        PATHS ${REDIS_PLUS_PLUS_LIBRARY_DIR}
+        REQUIRED
     )
-    
-    # redis++ 依赖 hiredis
-    find_path(HIREDIS_INCLUDE_DIR 
-        NAMES hiredis/hiredis.h
-        PATHS /usr/local/include /usr/include
-    )
-    
+
     find_library(HIREDIS_LIBRARY 
         NAMES hiredis libhiredis.so libhiredis.a
-        PATHS /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib
+        PATHS ${REDIS_PLUS_PLUS_LIBRARY_DIR}
+        REQUIRED
     )
-    
-    if(REDIS_PLUS_PLUS_INCLUDE_DIR AND REDIS_PLUS_PLUS_LIBRARY AND HIREDIS_INCLUDE_DIR AND HIREDIS_LIBRARY)
-        message(STATUS "✅ 找到 redis++")
-        message(STATUS "   redis++ 包含目录: ${REDIS_PLUS_PLUS_INCLUDE_DIR}")
-        message(STATUS "   redis++ 库: ${REDIS_PLUS_PLUS_LIBRARY}")
-        message(STATUS "   hiredis 包含目录: ${HIREDIS_INCLUDE_DIR}")
-        message(STATUS "   hiredis 库: ${HIREDIS_LIBRARY}")
-    else()
-        message(WARNING "⚠️ 未找到 redis++，Redis功能将不可用。请安装: sudo apt install libhiredis-dev")
-        message(WARNING "   然后编译安装 redis++: https://github.com/sewenew/redis++")
-    endif()
+
+    message(STATUS "✅ 找到 redis++ (Linux 手动查找)")
+    message(STATUS "   redis++ 包含目录: ${REDIS_PLUS_PLUS_INCLUDE_DIR}")
+    message(STATUS "   redis++ 库: ${REDIS_PLUS_PLUS_LIBRARY}")
+    message(STATUS "   hiredis 库: ${HIREDIS_LIBRARY}")
     
 elseif(PLATFORM_WINDOWS)
     if(NOT VCPKG_ROOT)
@@ -156,127 +142,101 @@ set(PROJECT_SOURCES ${SRC_FILES})
 
 # ==================== 查找 Oat++ 库 ====================
 if(PLATFORM_LINUX)
-    message(STATUS "使用 Linux 特定路径查找 Oat++ ${OATPP_VERSION}")
-    # Oat++ 1.3.0 的路径
-    set(OATPP_INCLUDE_DIR "/usr/local/include/oatpp-${OATPP_VERSION}/oatpp" "/usr/local/include/oatpp-${OATPP_VERSION}")
-    set(OATPP_LIBRARY_DIR "/usr/local/lib64/oatpp-${OATPP_VERSION}")
+    message(STATUS "使用 Linux 特定路径查找 Oat++ (vcpkg)")
+    set(VCPKG_ROOT "/opt/vcpkg")
+    set(OATPP_ROOT "${VCPKG_ROOT}/installed/x64-linux")
+    set(OATPP_INCLUDE_DIR "${OATPP_ROOT}/include")
+    set(OATPP_LIBRARY_DIR "${OATPP_ROOT}/lib")
+
+    find_library(OATPP_CORE_LIBRARY 
+        NAMES oatpp liboatpp.so liboatpp.a
+        PATHS ${OATPP_LIBRARY_DIR}
+        REQUIRED
+    )
+
+    find_library(OATPP_WEBSOCKET_LIBRARY 
+        NAMES oatpp-websocket liboatpp-websocket.so liboatpp-websocket.a
+        PATHS ${OATPP_LIBRARY_DIR}
+    )
+
+    find_library(OATPP_JSON_LIBRARY 
+        NAMES oatpp-parser-json liboatpp-parser-json.so liboatpp-parser-json.a
+        PATHS ${OATPP_LIBRARY_DIR}
+    )
+
+    find_library(OATPP_SWAGGER_LIBRARY 
+        NAMES oatpp-swagger liboatpp-swagger.so liboatpp-swagger.a
+        PATHS ${OATPP_LIBRARY_DIR}
+    )
+
+    find_library(OATPP_POSTGRESQL_LIBRARY 
+        NAMES oatpp-postgresql liboatpp-postgresql.so liboatpp-postgresql.a
+        PATHS ${OATPP_LIBRARY_DIR}
+    )
+
+    set(OATPP_SWAGGER_RESOURCES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/res")
+
+    message(STATUS "✅ 找到 Oat++ 头文件: ${OATPP_INCLUDE_DIR}")
+    message(STATUS "✅ 找到 Oat++ 核心库: ${OATPP_CORE_LIBRARY}")
+    if(OATPP_WEBSOCKET_LIBRARY)
+        message(STATUS "✅ 找到 Oat++ WebSocket 库: ${OATPP_WEBSOCKET_LIBRARY}")
+    endif()
+    if(OATPP_JSON_LIBRARY)
+        message(STATUS "✅ 找到 Oat++ JSON 库: ${OATPP_JSON_LIBRARY}")
+    endif()
+    if(OATPP_SWAGGER_LIBRARY)
+        message(STATUS "✅ 找到 Oat++ Swagger 库: ${OATPP_SWAGGER_LIBRARY}")
+        message(STATUS "✅ Swagger 资源目录: ${OATPP_SWAGGER_RESOURCES_DIR}")
+    else()
+        message(WARNING "⚠️ 未找到 Oat++ Swagger 库，Swagger 功能将不可用")
+    endif()
     
-    message(STATUS "查找 Oat++ 头文件路径: ${OATPP_INCLUDE_DIR}")
-    message(STATUS "查找 Oat++ 库文件路径: ${OATPP_LIBRARY_DIR}")
+    if(OATPP_POSTGRESQL_LIBRARY)
+        message(STATUS "✅ 找到 Oat++ PostgreSQL 库: ${OATPP_POSTGRESQL_LIBRARY}")
+    else()
+        message(WARNING "⚠️ 未找到 Oat++ PostgreSQL 库，PostgreSQL 功能将不可用")
+    endif()
     
+    add_library(oatpp::oatpp UNKNOWN IMPORTED)
+    set_target_properties(oatpp::oatpp PROPERTIES
+        IMPORTED_LOCATION "${OATPP_CORE_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
+    )
     
-    # 如果上面的 find_library 失败，尝试搜索其他路径
-    if(NOT OATPP_CORE_LIBRARY)
-        message(STATUS "在指定路径未找到库，尝试系统搜索...")
-        find_library(OATPP_CORE_LIBRARY 
-            NAMES oatpp liboatpp.so liboatpp.a
-            PATHS /usr/local/lib64 /usr/local/lib /usr/lib64 /usr/lib
-            PATH_SUFFIXES oatpp-${OATPP_VERSION} oatpp-1.3.0 oatpp-1.4.0 oatpp
-            REQUIRED
+    if(OATPP_WEBSOCKET_LIBRARY)
+        add_library(oatpp::oatpp-websocket UNKNOWN IMPORTED)
+        set_target_properties(oatpp::oatpp-websocket PROPERTIES
+            IMPORTED_LOCATION "${OATPP_WEBSOCKET_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
+            INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
         )
     endif()
     
-    # 查找可选的 WebSocket 库
-    find_library(OATPP_WEBSOCKET_LIBRARY 
-        NAMES oatpp-websocket liboatpp-websocket.so liboatpp-websocket.a
-        PATHS ${OATPP_LIBRARY_DIR} /usr/local/lib64 /usr/local/lib
-        PATH_SUFFIXES oatpp-${OATPP_VERSION} oatpp-1.3.0 oatpp-1.4.0
-    )
-    
-    # 查找可选的 JSON 解析库
-    find_library(OATPP_JSON_LIBRARY 
-        NAMES oatpp-parser-json liboatpp-parser-json.so liboatpp-parser-json.a
-        PATHS ${OATPP_LIBRARY_DIR} /usr/local/lib64 /usr/local/lib
-        PATH_SUFFIXES oatpp-${OATPP_VERSION} oatpp-1.3.0 oatpp-1.4.0
-    )
-    
-    # ========== 新增：查找 Swagger 库 ==========
-    find_library(OATPP_SWAGGER_LIBRARY 
-        NAMES oatpp-swagger liboatpp-swagger.so liboatpp-swagger.a
-        PATHS ${OATPP_LIBRARY_DIR} /usr/local/lib64 /usr/local/lib
-        PATH_SUFFIXES oatpp-${OATPP_VERSION} oatpp-1.3.0 oatpp-1.4.0
-    )
-    
-    # ========== 新增：查找 PostgreSQL 库 ==========
-    find_library(OATPP_POSTGRESQL_LIBRARY 
-        NAMES oatpp-postgresql liboatpp-postgresql.so liboatpp-postgresql.a
-        PATHS ${OATPP_LIBRARY_DIR} /usr/local/lib64 /usr/local/lib
-        PATH_SUFFIXES oatpp-${OATPP_VERSION} oatpp-1.3.0 oatpp-1.4.0
-    )
-    
-    # ========== 新增：查找 Swagger 资源目录 ==========
-    # 用于存放 Swagger UI 的静态资源文件
-    set(OATPP_SWAGGER_RESOURCES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/res")
-    
-    # 检查是否找到核心库
-    if(OATPP_INCLUDE_DIR AND OATPP_CORE_LIBRARY)
-        message(STATUS "✅ 找到 Oat++ 头文件: ${OATPP_INCLUDE_DIR}")
-        message(STATUS "✅ 找到 Oat++ 核心库: ${OATPP_CORE_LIBRARY}")
-        if(OATPP_WEBSOCKET_LIBRARY)
-            message(STATUS "✅ 找到 Oat++ WebSocket 库: ${OATPP_WEBSOCKET_LIBRARY}")
-        endif()
-        if(OATPP_JSON_LIBRARY)
-            message(STATUS "✅ 找到 Oat++ JSON 库: ${OATPP_JSON_LIBRARY}")
-        endif()
-        if(OATPP_SWAGGER_LIBRARY)
-            message(STATUS "✅ 找到 Oat++ Swagger 库: ${OATPP_SWAGGER_LIBRARY}")
-            message(STATUS "✅ Swagger 资源目录: ${OATPP_SWAGGER_RESOURCES_DIR}")
-        else()
-            message(WARNING "⚠️ 未找到 Oat++ Swagger 库，Swagger 功能将不可用")
-        endif()
-        
-        if(OATPP_POSTGRESQL_LIBRARY)
-            message(STATUS "✅ 找到 Oat++ PostgreSQL 库: ${OATPP_POSTGRESQL_LIBRARY}")
-        else()
-            message(WARNING "⚠️ 未找到 Oat++ PostgreSQL 库，PostgreSQL 功能将不可用")
-        endif()
-        
-        # 创建导入的目标
-        add_library(oatpp::oatpp UNKNOWN IMPORTED)
-        set_target_properties(oatpp::oatpp PROPERTIES
-            IMPORTED_LOCATION "${OATPP_CORE_LIBRARY}"
+    if(OATPP_JSON_LIBRARY)
+        add_library(oatpp::oatpp-parser-json UNKNOWN IMPORTED)
+        set_target_properties(oatpp::oatpp-parser-json PROPERTIES
+            IMPORTED_LOCATION "${OATPP_JSON_LIBRARY}"
             INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
+            INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
         )
-        
-        if(OATPP_WEBSOCKET_LIBRARY)
-            add_library(oatpp::oatpp-websocket UNKNOWN IMPORTED)
-            set_target_properties(oatpp::oatpp-websocket PROPERTIES
-                IMPORTED_LOCATION "${OATPP_WEBSOCKET_LIBRARY}"
-                INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
-                INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
-            )
-        endif()
-        
-        if(OATPP_JSON_LIBRARY)
-            add_library(oatpp::oatpp-parser-json UNKNOWN IMPORTED)
-            set_target_properties(oatpp::oatpp-parser-json PROPERTIES
-                IMPORTED_LOCATION "${OATPP_JSON_LIBRARY}"
-                INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
-                INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
-            )
-        endif()
-        
-        # ========== 新增：创建 Swagger 导入目标 ==========
-        if(OATPP_SWAGGER_LIBRARY)
-            add_library(oatpp::oatpp-swagger UNKNOWN IMPORTED)
-            set_target_properties(oatpp::oatpp-swagger PROPERTIES
-                IMPORTED_LOCATION "${OATPP_SWAGGER_LIBRARY}"
-                INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
-                INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
-            )
-        endif()
-        
-        # ========== 新增：创建 PostgreSQL 导入目标 ==========
-        if(OATPP_POSTGRESQL_LIBRARY)
-            add_library(oatpp::oatpp-postgresql UNKNOWN IMPORTED)
-            set_target_properties(oatpp::oatpp-postgresql PROPERTIES
-                IMPORTED_LOCATION "${OATPP_POSTGRESQL_LIBRARY}"
-                INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
-                INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
-            )
-        endif()
-    else()
-        message(FATAL_ERROR "无法找到 Oat++ ${OATPP_VERSION} 库，请确保已正确安装")
+    endif()
+    
+    if(OATPP_SWAGGER_LIBRARY)
+        add_library(oatpp::oatpp-swagger UNKNOWN IMPORTED)
+        set_target_properties(oatpp::oatpp-swagger PROPERTIES
+            IMPORTED_LOCATION "${OATPP_SWAGGER_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
+            INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
+        )
+    endif()
+    
+    if(OATPP_POSTGRESQL_LIBRARY)
+        add_library(oatpp::oatpp-postgresql UNKNOWN IMPORTED)
+        set_target_properties(oatpp::oatpp-postgresql PROPERTIES
+            IMPORTED_LOCATION "${OATPP_POSTGRESQL_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${OATPP_INCLUDE_DIR}"
+            INTERFACE_LINK_LIBRARIES "oatpp::oatpp"
+        )
     endif()
     
 elseif(PLATFORM_WINDOWS)
@@ -334,6 +294,8 @@ target_include_directories(ChatServer PRIVATE
 if(PLATFORM_LINUX)
     target_include_directories(ChatServer PRIVATE
         ${OATPP_INCLUDE_DIR}
+        ${MAILIO_INCLUDE_DIR}
+        ${REDIS_PLUS_PLUS_INCLUDE_DIR}
     )
 endif()
 
@@ -342,30 +304,11 @@ target_include_directories(ChatServer PRIVATE
     ${OPENSSL_INCLUDE_DIR}
 )
 
-# ========== 添加 mailio 包含目录 ==========
-if(PLATFORM_LINUX)
-    if(MAILIO_INCLUDE_DIR)
-        target_include_directories(ChatServer PRIVATE
-            ${MAILIO_INCLUDE_DIR}
-        )
-    endif()
-endif()
-
-# ========== 添加 redis++ 包含目录 ==========
-if(PLATFORM_LINUX)
-    if(REDIS_PLUS_PLUS_INCLUDE_DIR)
-        target_include_directories(ChatServer PRIVATE
-            ${REDIS_PLUS_PLUS_INCLUDE_DIR}
-            ${HIREDIS_INCLUDE_DIR}
-        )
-    endif()
-endif()
-
 # ==================== 设置 bcrypt 库路径 ====================
 set(BCRYPT_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib")
 
 # ==================== 链接库 ====================
-if(PLATFORM_LINUX AND NOT TARGET oatpp::oatpp)
+if(PLATFORM_LINUX)
     target_link_libraries(ChatServer PRIVATE
         ${OATPP_CORE_LIBRARY}
         pthread
@@ -377,11 +320,11 @@ if(PLATFORM_LINUX AND NOT TARGET oatpp::oatpp)
     if(OATPP_JSON_LIBRARY)
         target_link_libraries(ChatServer PRIVATE ${OATPP_JSON_LIBRARY})
     endif()
-    # ========== 新增：链接 Swagger 库 ==========
+    # ========== 链接 Swagger 库 ==========
     if(OATPP_SWAGGER_LIBRARY)
         target_link_libraries(ChatServer PRIVATE ${OATPP_SWAGGER_LIBRARY})
     endif()
-    # ========== 新增：链接 PostgreSQL 库 ==========
+    # ========== 链接 PostgreSQL 库 ==========
     if(OATPP_POSTGRESQL_LIBRARY)
         target_link_libraries(ChatServer PRIVATE ${OATPP_POSTGRESQL_LIBRARY})
     endif()
@@ -391,17 +334,13 @@ if(PLATFORM_LINUX AND NOT TARGET oatpp::oatpp)
     )
     
     # ========== 链接 mailio ==========
-    if(MAILIO_LIBRARY)
-        target_link_libraries(ChatServer PRIVATE ${MAILIO_LIBRARY})
-    endif()
+    target_link_libraries(ChatServer PRIVATE ${MAILIO_LIBRARY})
     
     # ========== 链接 redis++ ==========
-    if(REDIS_PLUS_PLUS_LIBRARY)
-        target_link_libraries(ChatServer PRIVATE 
-            ${REDIS_PLUS_PLUS_LIBRARY}
-            ${HIREDIS_LIBRARY}
-        )
-    endif()
+    target_link_libraries(ChatServer PRIVATE 
+        ${REDIS_PLUS_PLUS_LIBRARY}
+        ${HIREDIS_LIBRARY}
+    )
 else()
     target_link_libraries(ChatServer PRIVATE
         oatpp::oatpp
