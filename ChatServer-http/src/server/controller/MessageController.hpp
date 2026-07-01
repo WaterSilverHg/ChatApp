@@ -2,7 +2,7 @@
 
 #include "global.h"
 #include "server/dto/MessageDto.hpp"
-#include "server/vo/MessageVO.hpp"
+#include "server/vo/MessageVo.hpp"
 #include "server/service/MessageService.hpp"
 #include "server/handler/AppAuthHandler.h"
 

@@ -2,7 +2,7 @@
 
 #include "global.h"
 #include "server/dto/GroupDto.hpp"
-#include "server/vo/GroupVO.hpp"
+#include "server/vo/GroupVo.hpp"
 #include "server/service/GroupService.hpp"
 #include "server/handler/AppAuthHandler.h"
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "global.h"
-#include "server/vo/NotificationVO.hpp"
+#include "server/vo/NotificationVo.hpp"
 #include "server/service/NotificationService.hpp"
 
 #include OATPP_CODEGEN_BEGIN(ApiController) 

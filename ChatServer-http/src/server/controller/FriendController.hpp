@@ -2,7 +2,7 @@
 
 #include "global.h"
 #include "server/dto/FriendDto.hpp"
-#include "server/vo/FriendVO.hpp"
+#include "server/vo/FriendVo.hpp"
 #include "server/service/FriendService.hpp"
 #include "server/handler/AppAuthHandler.h"
 

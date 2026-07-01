@@ -3,7 +3,7 @@
 #include "global.h"
 #include"server/dto/ErrorStatusDto.hpp"
 #include "server/dto/FileDto.hpp"
-#include "server/vo/FileVO.hpp"
+#include "server/vo/FileVo.hpp"
 #include "server/service/FileService.hpp"
 #include "server/handler/AppAuthHandler.h"
 

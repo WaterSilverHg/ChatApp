@@ -2,7 +2,7 @@
 
 #include "global.h"
 #include "server/dto/ConversationDto.hpp"
-#include "server/vo/ConversationVO.hpp"
+#include "server/vo/ConversationVo.hpp"
 #include "server/service/ConversationService.hpp"
 #include "server/handler/AppAuthHandler.h"
 

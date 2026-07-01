@@ -2,7 +2,7 @@
 
 #include "global.h"
 #include "server/dto/UserStatusDto.hpp"
-#include "server/vo/UserStatusVO.hpp"
+#include "server/vo/UserStatusVo.hpp"
 #include "server/service/UserStatusService.hpp"
 #include "server/handler/AppAuthHandler.h"
 
