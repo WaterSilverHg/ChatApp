@@ -20,7 +20,47 @@ cmake-build-*/
 *.ilk
 
 # 依赖库
-lib/
+# lib/
+
+# ==================== 预编译库（vcpkg 中没有的库） ====================
+# 这些库因为 vcpkg 中没有，提交到仓库方便用户直接使用
+# 用 ! 前缀取消全局忽略规则，放行 lib 目录下的库文件
+
+# Windows 库（Debug/Release）
+!ChatServer-http/lib/Debug/*.lib
+!ChatServer-http/lib/Debug/*.dll
+!ChatServer-http/lib/Debug/*.pdb
+!ChatServer-http/lib/Release/*.lib
+!ChatServer-http/lib/Release/*.dll
+!ChatServer-http/lib/Release/*.pdb
+
+!ChatServer-websocket/lib/Debug/*.lib
+!ChatServer-websocket/lib/Debug/*.dll
+!ChatServer-websocket/lib/Debug/*.pdb
+!ChatServer-websocket/lib/Release/*.lib
+!ChatServer-websocket/lib/Release/*.dll
+!ChatServer-websocket/lib/Release/*.pdb
+
+# Linux 库
+!ChatServer-http/lib/linux*/**/*.so
+!ChatServer-http/lib/linux*/**/*.so.*
+!ChatServer-http/lib/linux*/**/*.a
+!ChatServer-http/lib/x64/**/*.so
+!ChatServer-http/lib/x64/**/*.so.*
+!ChatServer-http/lib/x64/**/*.a
+
+!ChatServer-websocket/lib/linux*/**/*.so
+!ChatServer-websocket/lib/linux*/**/*.so.*
+!ChatServer-websocket/lib/linux*/**/*.a
+!ChatServer-websocket/lib/x64/**/*.so
+!ChatServer-websocket/lib/x64/**/*.so.*
+!ChatServer-websocket/lib/x64/**/*.a
+
+# 仅忽略测试用的 exe 程序
+ChatServer-http/lib/Debug/*.exe
+ChatServer-http/lib/Release/*.exe
+ChatServer-websocket/lib/Debug/*.exe
+ChatServer-websocket/lib/Release/*.exe
 
 # 配置文件
 api.json

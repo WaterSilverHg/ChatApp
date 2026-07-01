@@ -1,4 +1,4 @@
-﻿// oatpptest.cpp: 定义应用程序的入口点。
+// oatpptest.cpp: 定义应用程序的入口点。
 //
 
 #include "global.h"
@@ -6,7 +6,9 @@
 
 int main()
 {
+#ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
+#endif
     oatpp::base::Environment::init();
 
     try {
