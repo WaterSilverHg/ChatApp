@@ -57,7 +57,19 @@ message(STATUS "✅ Poco ${Poco_VERSION}")
 
 # redis++
 find_package(redis++ CONFIG REQUIRED)
-message(STATUS "✅ redis++")
+if(redis++_FOUND)
+    # 按优先级检测常见目标名（跨平台兼容）
+    if(TARGET redis++::redis++_static)
+        set(REDIS_TARGET redis++::redis++_static)
+    elseif(TARGET redis++::redis++)
+        set(REDIS_TARGET redis++::redis++)
+    elseif(TARGET redis++::redis_plus_plus)
+        set(REDIS_TARGET redis++::redis_plus_plus)
+    else()
+        message(FATAL_ERROR "无法识别 redis++ 提供的 CMake 目标")
+    endif()
+    message(STATUS "✅ redis++ 目标: ${REDIS_TARGET}")
+endif()
 
 # mailio
 find_package(mailio CONFIG REQUIRED)
@@ -93,14 +105,35 @@ elseif(PLATFORM_WINDOWS)
 endif()
 message(STATUS "✅ COS: ${COS_LIBRARY}")
 
-# ==================== bcrypt（仅 Windows，不在 vcpkg 中） ====================
-if(WIN32)
-    set(BCRYPT_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+# ==================== bcrypt（不在 vcpkg 中，手动查找） ====================
+set(BCRYPT_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+set(BCRYPT_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/bcrypt")
+
+if(PLATFORM_LINUX)
+    find_library(BCRYPT_LIBRARY
+        NAMES bcrypt libbcrypt.a
+        PATHS ${BCRYPT_LIB_DIR}
+        PATH_SUFFIXES linux linux-x64 x64
+        REQUIRED
+    )
+    message(STATUS "✅ bcrypt (Linux): ${BCRYPT_LIBRARY}")
+elseif(PLATFORM_WINDOWS)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(BCRYPT_LIB "${BCRYPT_LIB_DIR}/Debug/bcrypt.lib")
+        find_library(BCRYPT_LIBRARY
+            NAMES bcrypt.lib
+            PATHS ${BCRYPT_LIB_DIR}
+            PATH_SUFFIXES Debug windows/x64/Debug
+            REQUIRED
+        )
     else()
-        set(BCRYPT_LIB "${BCRYPT_LIB_DIR}/Release/bcrypt.lib")
+        find_library(BCRYPT_LIBRARY
+            NAMES bcrypt.lib
+            PATHS ${BCRYPT_LIB_DIR}
+            PATH_SUFFIXES Release windows/x64/Release
+            REQUIRED
+        )
     endif()
+    message(STATUS "✅ bcrypt (Windows): ${BCRYPT_LIBRARY}")
 endif()
 
 # ==================== 源文件 ====================
@@ -115,15 +148,18 @@ target_include_directories(ChatServer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${COS_INCLUDE_DIR}
+    ${BCRYPT_INCLUDE_DIR}
 )
 
 # ==================== 链接库 ====================
 target_link_libraries(ChatServer PRIVATE
     # COS SDK（依赖 Poco、OpenSSL，不在 vcpkg 中）
     ${COS_LIBRARY}
+    # bcrypt（不在 vcpkg 中）
+    ${BCRYPT_LIBRARY}
     # vcpkg 库（通过 find_package 提供的 imported target，自动处理传递依赖和链接顺序）
     mailio::mailio
-    redis++::redis++
+    ${REDIS_TARGET}
     Poco::Foundation Poco::JSON Poco::XML Poco::Util Poco::Net Poco::Crypto Poco::NetSSL
     OpenSSL::SSL OpenSSL::Crypto
     oatpp::oatpp
@@ -135,10 +171,6 @@ target_link_libraries(ChatServer PRIVATE
     $<$<PLATFORM_ID:Linux>:dl>
     $<$<PLATFORM_ID:Linux>:crypt>
 )
-
-if(WIN32 AND BCRYPT_LIB)
-    target_link_libraries(ChatServer PRIVATE ${BCRYPT_LIB})
-endif()
 
 # ==================== 平台特定设置 ====================
 if(WIN32)
