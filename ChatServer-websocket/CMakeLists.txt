@@ -88,22 +88,10 @@ if(PLATFORM_LINUX)
     )
     message(STATUS "✅ bcrypt (Linux): ${BCRYPT_LIBRARY}")
 elseif(PLATFORM_WINDOWS)
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        find_library(BCRYPT_LIBRARY
-            NAMES bcrypt.lib
-            PATHS ${BCRYPT_LIB_DIR}
-            PATH_SUFFIXES Debug windows/x64/Debug
-            REQUIRED
-        )
-    else()
-        find_library(BCRYPT_LIBRARY
-            NAMES bcrypt.lib
-            PATHS ${BCRYPT_LIB_DIR}
-            PATH_SUFFIXES Release windows/x64/Release
-            REQUIRED
-        )
-    endif()
-    message(STATUS "✅ bcrypt (Windows): ${BCRYPT_LIBRARY}")
+    # Windows 平台仅使用系统 bcrypt 库（Windows Crypto API）
+    set(BCRYPT_LIBRARY "")
+    set(WINDOWS_BCRYPT_LIB "bcrypt")
+    message(STATUS "✅ bcrypt (Windows): 仅使用系统 bcrypt.lib")
 endif()
 
 # ==================== 源文件 ====================
@@ -117,13 +105,14 @@ add_executable(ChatServer ${SRC_FILES})
 target_include_directories(ChatServer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${BCRYPT_INCLUDE_DIR}
+    #${BCRYPT_INCLUDE_DIR}
 )
 
 # ==================== 链接库 ====================
 target_link_libraries(ChatServer PRIVATE
-    # bcrypt（不在 vcpkg 中）
-    ${BCRYPT_LIBRARY}
+    # bcrypt（不在 vcpkg 中，Windows 仅使用系统库，Linux 使用用户编译的库）
+    $<$<BOOL:${PLATFORM_LINUX}>:${BCRYPT_LIBRARY}>
+    $<$<BOOL:${PLATFORM_WINDOWS}>:${WINDOWS_BCRYPT_LIB}>
     # vcpkg 库（通过 find_package 提供的 imported target，自动处理传递依赖和链接顺序）
     mailio::mailio
     ${REDIS_TARGET}

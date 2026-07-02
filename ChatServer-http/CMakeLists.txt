@@ -4,6 +4,7 @@ project(ChatServer VERSION 1.0.0 LANGUAGES CXX)
 # ==================== 全局编译选项 ====================
 add_definitions(-DNOMINMAX)          # 解决 picojson.h 的报错问题
 
+
 if(MSVC)
     add_compile_options(/bigobj /utf-8)
 else()
@@ -118,22 +119,27 @@ if(PLATFORM_LINUX)
     )
     message(STATUS "✅ bcrypt (Linux): ${BCRYPT_LIBRARY}")
 elseif(PLATFORM_WINDOWS)
+    # 用户编译的 bcrypt_hash.lib（用于 bcrypt_checkpw 等哈希函数）
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         find_library(BCRYPT_LIBRARY
-            NAMES bcrypt.lib
+            NAMES bcrypt_hash.lib
             PATHS ${BCRYPT_LIB_DIR}
             PATH_SUFFIXES Debug windows/x64/Debug
+            NO_DEFAULT_PATH
             REQUIRED
         )
     else()
         find_library(BCRYPT_LIBRARY
-            NAMES bcrypt.lib
+            NAMES bcrypt_hash.lib
             PATHS ${BCRYPT_LIB_DIR}
             PATH_SUFFIXES Release windows/x64/Release
+            NO_DEFAULT_PATH
             REQUIRED
         )
     endif()
-    message(STATUS "✅ bcrypt (Windows): ${BCRYPT_LIBRARY}")
+    # 系统 bcrypt.lib（Windows API，用于加密功能）
+    set(WINDOWS_BCRYPT_LIB "bcrypt")
+    message(STATUS "✅ bcrypt (Windows): ${BCRYPT_LIBRARY} + 系统 bcrypt.lib")
 endif()
 
 # ==================== 源文件 ====================
@@ -148,7 +154,7 @@ target_include_directories(ChatServer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${COS_INCLUDE_DIR}
-    ${BCRYPT_INCLUDE_DIR}
+    #${BCRYPT_INCLUDE_DIR}
 )
 
 # ==================== 链接库 ====================
@@ -157,6 +163,7 @@ target_link_libraries(ChatServer PRIVATE
     ${COS_LIBRARY}
     # bcrypt（不在 vcpkg 中）
     ${BCRYPT_LIBRARY}
+    $<$<BOOL:${PLATFORM_WINDOWS}>:${WINDOWS_BCRYPT_LIB}>
     # vcpkg 库（通过 find_package 提供的 imported target，自动处理传递依赖和链接顺序）
     mailio::mailio
     ${REDIS_TARGET}

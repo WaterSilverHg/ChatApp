@@ -57,7 +57,10 @@ INSERT INTO users (username, email, phone, password_hash, avatar_url, status) VA
     ('wangqiang', 'wangqiang@example.com', '+8613800000003', crypt('pass789', gen_salt('bf')), '/avatars/wangqiang.jpg', 'away'),
     ('zhaomin', 'zhaomin@example.com', '+8613800000004', crypt('passabc', gen_salt('bf')), '/avatars/zhaomin.jpg', 'busy'),
     ('sunhao', 'sunhao@example.com', '+8613800000005', crypt('passdef', gen_salt('bf')), NULL, 'online'),
-    ('chenjing', 'chenjing@example.com', '+8613800000006', crypt('passghi', gen_salt('bf')), '/avatars/chenjing.jpg', 'offline');
+    ('chenjing', 'chenjing@example.com', '+8613800000006', crypt('passghi', gen_salt('bf')), '/avatars/chenjing.jpg', 'offline'),
+    -- 测试脚本专用用户
+    ('testuser', 'test@test.com', '+8613800000099', crypt('12345678', gen_salt('bf')), '/avatars/testuser.jpg', 'online'),
+    ('testuser2', 'test2@test.com', '+8613800000088', crypt('12345678', gen_salt('bf')), '/avatars/testuser2.jpg', 'online');
 
 -- 验证用户创建数量
 DO $$
@@ -244,6 +247,25 @@ FROM friend_requests WHERE from_user_id = (SELECT id FROM users WHERE username =
   AND to_user_id = (SELECT id FROM users WHERE username = 'wangqiang')
 ON CONFLICT DO NOTHING;
 
+-- 测试用户之间的好友关系（testuser <-> testuser2）
+INSERT INTO friend_requests (from_user_id, to_user_id, message, status)
+SELECT u1.id, u2.id, 'Test users friendship', 'accepted'
+FROM users u1, users u2
+WHERE u1.username = 'testuser' AND u2.username = 'testuser2'
+ON CONFLICT (from_user_id, to_user_id) DO NOTHING;
+
+INSERT INTO friendships (user_id, friend_id, status, group_name)
+SELECT from_user_id, to_user_id, 'accepted', 'Default Group'
+FROM friend_requests WHERE from_user_id = (SELECT id FROM users WHERE username = 'testuser')
+  AND to_user_id = (SELECT id FROM users WHERE username = 'testuser2')
+ON CONFLICT (user_id, friend_id) DO NOTHING;
+
+INSERT INTO friendships (user_id, friend_id, status, group_name)
+SELECT to_user_id, from_user_id, 'accepted', 'Default Group'
+FROM friend_requests WHERE from_user_id = (SELECT id FROM users WHERE username = 'testuser')
+  AND to_user_id = (SELECT id FROM users WHERE username = 'testuser2')
+ON CONFLICT (user_id, friend_id) DO NOTHING;
+
 -- 验证好友关系（统计 accepted + pending）
 DO $$
 DECLARE
@@ -374,6 +396,19 @@ SELECT
     u1.id, u2.id, 'text', 'Yes, see you there!'
 FROM users u1, users u2
 WHERE u1.username = 'zhaomin' AND u2.username = 'wangqiang';
+
+-- 测试用户之间的消息（testuser <-> testuser2）
+INSERT INTO messages (from_user_id, to_user_id, message_type, content)
+SELECT
+    u1.id, u2.id, 'text', 'Hello from test user!'
+FROM users u1, users u2
+WHERE u1.username = 'testuser' AND u2.username = 'testuser2';
+
+INSERT INTO messages (from_user_id, to_user_id, message_type, content)
+SELECT
+    u1.id, u2.id, 'text', 'Hi there!'
+FROM users u1, users u2
+WHERE u1.username = 'testuser2' AND u2.username = 'testuser';
 
 -- 5.3 群聊消息
 INSERT INTO messages (from_user_id, to_group_id, message_type, content)
