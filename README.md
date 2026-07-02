@@ -560,11 +560,11 @@ docker-compose logs -f websocket-server
 
 **使用宿主机 vcpkg 加速构建**（可选）：
 ```bash
-# Windows 系统（假设 vcpkg 安装在 C:\cppsoft\vcpkg）
-docker build --build-arg VCPKG_HOST_PATH=/mnt/c/cppsoft/vcpkg -f ChatServer-http/Dockerfile -t chatapp-http .
+# Windows 系统（WSL2 路径，替换为你的 vcpkg 实际路径）
+docker build --build-arg VCPKG_HOST_PATH=/path/to/vcpkg -f ChatServer-http/Dockerfile -t chatapp-http .
 
-# Linux 系统
-docker build --build-arg VCPKG_HOST_PATH=/usr/local/vcpkg -f ChatServer-http/Dockerfile -t chatapp-http .
+# Linux 系统（替换为你的 vcpkg 实际路径）
+docker build --build-arg VCPKG_HOST_PATH=/path/to/vcpkg -f ChatServer-http/Dockerfile -t chatapp-http .
 ```
 
 通过 `VCPKG_HOST_PATH` 参数可以复用宿主机的 vcpkg 安装，大幅缩短构建时间（从 15-30 分钟降至 5-10 分钟）。
